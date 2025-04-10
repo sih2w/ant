@@ -164,11 +164,11 @@ class ScavengingAntEnv(Env):
         4. Food position plane
         5. Is carrying food plane
         """
-        self.observation_space =  Box(
+        self.observation_space = Box(
             low=0,
-            high=1,
+            high=np.iinfo(np.int16).max,
             shape=(5, grid_height, grid_width),
-            dtype=np.int8
+            dtype=np.int16
         )
 
         max_agent_radius = max(grid_width, grid_height)
@@ -258,7 +258,7 @@ class ScavengingAntEnv(Env):
         self.__agent.set_carried_food(None)
 
     def __coordinates_to_plane(self, coordinates: [[int, int]]):
-        plane = np.zeros(shape=(self.__grid_height, self.__grid_width), dtype=np.int8)
+        plane = np.zeros(shape=(self.__grid_height, self.__grid_width), dtype=np.int16)
         for index, coordinate in enumerate(coordinates):
             plane[coordinate[1], coordinate[0]] += 1
         return plane
