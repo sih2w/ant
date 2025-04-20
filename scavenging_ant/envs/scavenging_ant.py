@@ -1,7 +1,8 @@
 from __future__ import annotations
+import math
 import numpy as np
 import pygame
-from gymnasium.spaces import Discrete, Box, Dict
+from gymnasium.spaces import Discrete, Box
 from gymnasium import Env
 
 AGENT_ACTIONS = [
@@ -15,6 +16,13 @@ class Positionable:
     def __init__(self, position: [int, int]):
         self.__position = position
 
+    @staticmethod
+    def get_positions(positionables: [Positionable]):
+        positions = []
+        for positionable in positionables:
+            positions.append(positionable.get_position())
+        return positions
+
     def set_position(self, position: [int, int]):
         self.__position = position
 
@@ -27,14 +35,14 @@ class Food(Positionable):
             weight: float = 0.10,
             position: [int, int] = None,
             aroma_radius: float = 1,
-            square_pixel_width: float = 0,
-            random: np.random.default_rng = None,
+            square_pixel_width: float = 0
     ):
         super().__init__(position)
         self.__aroma_radius = aroma_radius
+        self.__hidden = False
         self.__carried = False
         self.__weight = weight
-        self.__pixel_offset = random.integers(
+        self.__pixel_offset = np.random.randint(
             low=-square_pixel_width // 2,
             high=square_pixel_width // 2,
             size=(2, ),
@@ -47,11 +55,17 @@ class Food(Positionable):
     def get_weight(self):
         return self.__weight
 
-    def set_carried(self, is_carried: bool):
-        self.__carried = is_carried
+    def set_carried(self, carried: bool):
+        self.__carried = carried
 
     def is_carried(self):
         return self.__carried
+
+    def is_hidden(self):
+        return self.__hidden
+
+    def set_hidden(self, hidden: bool):
+        self.__hidden = hidden
 
     def get_aroma_radius(self):
         return self.__aroma_radius
@@ -132,7 +146,7 @@ class ScavengingAntEnv(Env):
             render_fps: int = 10,
             nest_count: int = 1,
             food_count: int = 1,
-            seed: int = 0,
+            seed: int = np.random.randint(1, 1000),
             persistent_obstacles: bool = False,
             persistent_nests: bool = False,
             persistent_food: bool = False,
@@ -173,11 +187,37 @@ class ScavengingAntEnv(Env):
 
         max_agent_radius = max(grid_width, grid_height)
         self.__agent = Agent(
-            carry_capacity=min(self.__random.random(), 0.50) * max_agent_radius,
-            scent_radius=min(self.__random.random(), 0.50) * max_agent_radius,
-            vision_radius=min(self.__random.random(), 0.50) * max_agent_radius,
+            carry_capacity=np.random.uniform(low=0, high=0.50) * max_agent_radius,
+            scent_radius=np.random.uniform(low=0, high=0.50) * max_agent_radius,
+            vision_radius=np.random.uniform(low=0, high=0.50) * max_agent_radius,
             position=[-1, -1]
         )
+
+        for _ in range(self.__nest_count):
+            self.__nests.append(
+                Nest(
+                    position=[-1, -1],
+                    capacity=np.random.randint(low=1, high=5),
+                )
+            )
+
+        max_aroma_radius = max(self.__grid_width, self.__grid_height)
+        for _ in range(self.__food_count):
+            self.__food.append(
+                Food(
+                    weight=np.random.randint(low=1, high=10),
+                    position=[-1, -1],
+                    aroma_radius=np.random.uniform(low=0, high=0.50) * max_aroma_radius,
+                    square_pixel_width=self.__square_pixel_width
+                )
+            )
+
+        for index in range(self.__obstacle_count):
+            self.__obstacles.append(
+                Obstacle(
+                    position=[-1, -1]
+                )
+            )
 
     def __get_random_position(self):
         return self.__random.integers(low=0, high=[self.__grid_width - 1, self.__grid_height - 1], dtype=np.int16)
@@ -199,63 +239,9 @@ class ScavengingAntEnv(Env):
 
         return self.__get_random_position()
 
-    def __get_excluded_positions(self):
-        excluded_positions = [self.__agent.get_position()]
-        for obstacle in self.__obstacles:
-            excluded_positions.append(obstacle.get_position())
-
-        for nest in self.__nests:
-            excluded_positions.append(nest.get_position())
-
-        for food in self.__food:
-            excluded_positions.append(food.get_position())
-        return excluded_positions
-
     def __percent_to_count(self, percent: float):
         cell_count = self.__grid_width * self.__grid_height
-        return int(cell_count * percent)
-
-    def __spawn_food(self):
-        self.__food = []
-        excluded_positions = self.__get_excluded_positions()
-        max_radius = max(self.__grid_width, self.__grid_height)
-
-        for _ in range(self.__food_count):
-            self.__food.append(
-                Food(
-                    weight=self.__random.random(),
-                    position=self.__get_new_random_position(excluded_positions),
-                    aroma_radius=min(self.__random.random(), 0.50) * max_radius,
-                    square_pixel_width=self.__square_pixel_width,
-                    random=self.__random
-                )
-            )
-
-    def __spawn_obstacles(self):
-        self.__obstacles = []
-        for index in range(self.__obstacle_count):
-            excluded_positions = self.__get_excluded_positions()
-            self.__obstacles.append(
-                Obstacle(
-                    position=self.__get_new_random_position(excluded_positions)
-                )
-            )
-
-    def __spawn_nests(self):
-        self.__nests = []
-        for index in range(self.__nest_count):
-            excluded_positions = self.__get_excluded_positions()
-            self.__nests.append(
-                Nest(
-                    position=self.__get_new_random_position(excluded_positions),
-                    capacity=self.__random.integers(low=1, high=5),
-                )
-            )
-
-    def __spawn_agent(self):
-        excluded_positions = self.__get_excluded_positions()
-        self.__agent.set_position(self.__get_new_random_position(excluded_positions))
-        self.__agent.set_carried_food(None)
+        return math.floor(cell_count * percent)
 
     def __coordinates_to_plane(self, coordinates: [[int, int]]):
         plane = np.zeros(shape=(self.__grid_height, self.__grid_width), dtype=np.int16)
@@ -287,13 +273,39 @@ class ScavengingAntEnv(Env):
             np.zeros(shape=(self.__grid_height, self.__grid_width)) if self.__agent.get_carried_food() is None else np.ones(shape=(self.__grid_height, self.__grid_width))
         ))
 
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed or np.random.randint(low=0, high=1000))
+    def reset(self, seed: int = None, options = None):
+        super().reset(seed=seed)
 
-        self.__spawn_nests()
-        self.__spawn_food()
-        self.__spawn_agent()
-        self.__spawn_obstacles()
+        for obstacle in self.__obstacles:
+            obstacle.set_position([-1, -1])
+
+        for nest in self.__nests:
+            nest.set_position([-1, -1])
+
+        for food in self.__food:
+            food.set_hidden(False)
+            food.set_carried(False)
+            food.set_position([-1, -1])
+
+        self.__agent.set_position([-1, -1])
+
+        self.__random = np.random.default_rng(seed=seed)
+
+        for obstacle in self.__obstacles:
+            excluded_positions = Positionable.get_positions(self.__obstacles)
+            obstacle.set_position(self.__get_new_random_position(excluded_positions))
+
+        for nest in self.__nests:
+            excluded_positions = Positionable.get_positions(self.__nests) + Positionable.get_positions(self.__obstacles)
+            nest.set_position(self.__get_new_random_position(excluded_positions))
+
+        for food in self.__food:
+            excluded_positions = Positionable.get_positions(self.__nests) + Positionable.get_positions(self.__obstacles)
+            food.set_position(self.__get_new_random_position(excluded_positions))
+
+        excluded_positions = Positionable.get_positions(self.__obstacles)
+        self.__agent.set_position(self.__get_new_random_position(excluded_positions))
+        self.__agent.set_carried_food(None)
 
         return self.__get_observation(), {}
 
@@ -317,7 +329,7 @@ class ScavengingAntEnv(Env):
                 carried_food = self.__agent.get_carried_food()
                 if carried_food is None:
                     for food in self.__food:
-                        if not food.is_carried() and np.array_equal(food.get_position(), new_position):
+                        if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
                             self.__agent.set_carried_food(food)
                             food.set_carried(True)
                             reward += 1
@@ -330,7 +342,7 @@ class ScavengingAntEnv(Env):
                     for nest in self.__nests:
                         if np.array_equal(nest.get_position(), new_position):
                             self.__agent.set_carried_food(None)
-                            self.__food.remove(carried_food)
+                            carried_food.set_hidden(True)
                             reward += 1
                             break
                     else:
@@ -344,7 +356,12 @@ class ScavengingAntEnv(Env):
 
     def step(self, action: int):
         reward = self.__update_agent(action)
-        terminated = len(self.__food) == 0
+        terminated = True
+
+        for food in self.__food:
+            terminated = food.is_hidden()
+            if not terminated:
+                break
 
         if self.render_mode == "human":
             self.render()
@@ -380,16 +397,17 @@ class ScavengingAntEnv(Env):
 
     def __draw_food(self, canvas):
         for food in self.__food:
-            position = np.array((food.get_position() + 0.50) * self.__square_pixel_width)
-            if not food.is_carried():
-                position += food.get_pixel_offset()
+            if not food.is_hidden():
+                position = np.array((food.get_position() + 0.50) * self.__square_pixel_width)
+                if not food.is_carried():
+                    position += food.get_pixel_offset()
 
-            pygame.draw.circle(
-                surface=canvas,
-                color=(229, 170, 22),
-                center=position,
-                radius=self.__square_pixel_width / 10,
-            )
+                pygame.draw.circle(
+                    surface=canvas,
+                    color=(229, 170, 22),
+                    center=position,
+                    radius=self.__square_pixel_width / 10,
+                )
 
     def __draw_obstacles(self, canvas):
         for obstacle in self.__obstacles:

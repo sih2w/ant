@@ -113,30 +113,28 @@ class A2C(nn.Module):
 
 def get_default_domain_environment(args, **kwargs):
     environment = scavenging_ant.ScavengingAntEnv(
-        persistent_obstacles=True,
-        persistent_food=True,
+        persistent_obstacles=False,
+        persistent_food=False,
         persistent_nests=True,
         nest_count=args.nest_count,
         grid_height=args.grid_height,
         grid_width=args.grid_width,
         food_count=args.food_count,
         percent_obstacles=args.percent_obstacles,
-        seed=args.seed,
         **kwargs,
     )
     return environment
 
 def get_randomized_domain_environment(args, **kwargs):
     environment = scavenging_ant.ScavengingAntEnv(
-        persistent_obstacles=True,
-        persistent_food=True,
+        persistent_obstacles=False,
+        persistent_food=False,
         persistent_nests=True,
         nest_count=args.nest_count,
         grid_height=args.grid_height,
         grid_width=args.grid_width,
         food_count=args.food_count,
         percent_obstacles=np.random.uniform(0, 0.10),
-        seed=args.seed,
         **kwargs,
     )
     return environment
@@ -147,16 +145,15 @@ def get_parser():
     parser.add_argument("--grid-height", type=int, default=10)
     parser.add_argument("--grid-width", type=int, default=18)
     parser.add_argument("--food-count", type=int, default=1)
-    parser.add_argument("--percent-obstacles", type=float, default=0)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--percent-obstacles", type=float, default=0.10)
     parser.add_argument("--environment-count", type=int, default=10)
     parser.add_argument("--critic-learning-rate", type=float, default=0.005)
     parser.add_argument("--actor-learning-rate", type=float, default=0.001)
     parser.add_argument("--update-count", type=int, default=1000)
     parser.add_argument("--steps-per-update", type=int, default=108)
-    parser.add_argument("--gamma", type=float, default=0.10)
-    parser.add_argument("--lam", type=float, default=0.99)
-    parser.add_argument("--entropy-coefficient", type=float, default=0.01)
+    parser.add_argument("--gamma", type=float, default=0.95)
+    parser.add_argument("--lam", type=float, default=0.95)
+    parser.add_argument("--entropy-coefficient", type=float, default=0.05)
     parser.add_argument("--use-cuda", type=bool, default=False)
     parser.add_argument("--save-weights", type=bool, default=True)
     parser.add_argument("--showcase-episode-count", type=int, default=10)
