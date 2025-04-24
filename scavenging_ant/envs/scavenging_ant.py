@@ -277,22 +277,21 @@ class ScavengingAntEnv(Env):
                         if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
                             self.__agent.set_carried_food(food)
                             food.set_carried(True)
-                            reward += 1
                             break
                     else:
                         # Penalize the agent for taking a step without picking up food.
-                        reward -= 0.25
+                        reward -= 1
                 else:
                     carried_food.set_position(new_position)
                     for nest in self.__nests:
                         if np.array_equal(nest.get_position(), new_position):
                             self.__agent.set_carried_food(None)
                             carried_food.set_hidden(True)
-                            reward += 1
+                            reward += 50
                             break
                     else:
                         # Penalize the agent for taking a step without depositing food in a nest.
-                        reward -= 0.25
+                        reward -= 1
 
                 # Move the agent to the new position if the position was valid.
                 self.__agent.set_position(new_position)
