@@ -11,8 +11,8 @@ def create_env(render_mode: str = None):
         grid_height=10,
         grid_width=18,
         food_count=1,
-        nest_count=1,
-        percent_obstacles=0,
+        nest_count=3,
+        percent_obstacles=0.10,
         seed=0
     )
 
