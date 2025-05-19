@@ -1,9 +1,12 @@
 from __future__ import annotations
+
+import functools
 import math
 import numpy as np
 import pygame
 from gymnasium.spaces import Discrete, Box, Dict
-from gymnasium import Env
+from pettingzoo import ParallelEnv
+from pettingzoo.utils import parallel_to_aec, wrappers
 
 AGENT_ACTIONS = [
     [0, 1], # Move down
@@ -105,10 +108,21 @@ class Obstacle(Positionable):
         super().__init__(position)
         self.__position = position
 
-class ScavengingAntEnv(Env):
+def raw_env(render_mode=None, **kwargs):
+    env = ScavengingAntEnv(render_mode=render_mode, **kwargs)
+    env = parallel_to_aec(env)
+    return env
+
+def env(render_mode=None, **kwargs):
+    env = raw_env(render_mode=render_mode, **kwargs)
+    env = wrappers.AssertOutOfBoundsWrapper(env)
+    env = wrappers.OrderEnforcingWrapper(env)
+    return env
+
+class ScavengingAntEnv(ParallelEnv):
     metadata = {
         "render_fps": 30,
-        "name": "scavenging_ants_environment_v0",
+        "name": "scavenging_ant_environment_v0",
         "render_modes": [
             "human",
         ],
@@ -124,6 +138,7 @@ class ScavengingAntEnv(Env):
             render_fps: int = 10,
             nest_count: int = 1,
             food_count: int = 1,
+            agent_count: int = 1,
             seed: int = np.random.randint(1, 1000),
     ):
         self.__grid_width = grid_width
@@ -139,26 +154,17 @@ class ScavengingAntEnv(Env):
         self.__clock = None
         self.__random = np.random.default_rng(seed)
 
+        self.possible_agents = ["ant_" + str(index) for index in range(agent_count)]
+        self.agents = self.possible_agents[:]
         self.render_mode = render_mode
         self.render_fps = render_fps
-        self.action_space = Discrete(len(AGENT_ACTIONS))
-        self.observation_space = Dict({
-            "position": Box(
-                low=np.array([-1, -1]),
-                high=np.array([self.__grid_width, self.__grid_height]),
-                shape=(2, ),
-                dtype=np.int16
-            ),
-            "at_obstacle": Discrete(2),
-            "at_food": Discrete(2),
-            "at_nest": Discrete(2),
-            "carrying_food": Discrete(2),
-        })
 
-        self.__agent = Agent(
-            carry_capacity=np.random.uniform(low=0, high=0.50),
-            position=[-1, -1]
-        )
+        self.__agents = {
+            name: Agent(
+                carry_capacity=np.random.uniform(low=0, high=0.50),
+                position=[-1, -1]
+            ) for name in self.possible_agents
+        }
 
         for _ in range(self.__nest_count):
             self.__nests.append(
@@ -184,6 +190,39 @@ class ScavengingAntEnv(Env):
                 )
             )
 
+    @staticmethod
+    def flatten_observations(observations):
+        for name, observation in observations.items():
+            observations[name] = (
+            observation["position"][0],
+            observation["position"][1],
+            observation["at_obstacle"],
+            observation["at_food"],
+            observation["at_nest"],
+            observation["carrying_food"]
+        )
+
+        return observations
+
+    @functools.lru_cache(maxsize=None)
+    def action_space(self, agent: str):
+        return Discrete(len(AGENT_ACTIONS))
+
+    @functools.lru_cache(maxsize=None)
+    def observation_space(self, agent: str):
+        return Dict({
+            "position": Box(
+                low=np.array([-1, -1]),
+                high=np.array([self.__grid_width, self.__grid_height]),
+                shape=(2, ),
+                dtype=np.int16
+            ),
+            "at_obstacle": Discrete(2),
+            "at_food": Discrete(2),
+            "at_nest": Discrete(2),
+            "carrying_food": Discrete(2),
+        })
+
     def __get_random_position(self):
         return self.__random.integers(low=0, high=[self.__grid_width - 1, self.__grid_height - 1], dtype=np.int16)
 
@@ -208,20 +247,24 @@ class ScavengingAntEnv(Env):
         cell_count = self.__grid_width * self.__grid_height
         return math.floor(cell_count * percent)
 
-    def __get_observation(self):
-        agent_position = self.__agent.get_position()
+    def __get_observation(self, agent: str):
+        agent = self.__agents[agent]
+        agent_position = agent.get_position()
 
         return {
-            "position": self.__agent.get_position(),
+            "position": agent_position,
             "at_obstacle": agent_position in Positionable.get_positions(self.__obstacles),
             "at_food": agent_position in Positionable.get_positions(self.__food),
             "at_nest": agent_position in Positionable.get_positions(self.__nests),
-            "carrying_food": self.__agent.get_carried_food() is not None,
+            "carrying_food": agent.get_carried_food() is not None,
+        }
+
+    def __get_observations(self):
+        return {
+            name: self.__get_observation(name) for name in self.possible_agents
         }
 
     def reset(self, seed: int = None, options = None):
-        super().reset(seed=seed)
-
         for obstacle in self.__obstacles:
             obstacle.set_position([-1, -1])
 
@@ -233,7 +276,10 @@ class ScavengingAntEnv(Env):
             food.set_carried(False)
             food.set_position([-1, -1])
 
-        self.__agent.set_position([-1, -1])
+        for _, agent in self.__agents.items():
+            agent.set_position([-1, -1])
+            agent.set_carried_food(None)
+
         self.__random = np.random.default_rng(seed=seed)
 
         for obstacle in self.__obstacles:
@@ -248,15 +294,17 @@ class ScavengingAntEnv(Env):
             excluded_positions = Positionable.get_positions(self.__nests) + Positionable.get_positions(self.__obstacles)
             food.set_position(self.__get_new_random_position(excluded_positions))
 
-        excluded_positions = Positionable.get_positions(self.__obstacles)
-        self.__agent.set_position(self.__get_new_random_position(excluded_positions))
-        self.__agent.set_carried_food(None)
+        excluded_positions = Positionable.get_positions(self.__obstacles) + Positionable.get_positions(self.__food)
+        for _, agent in self.__agents.items():
+            agent.set_position(self.__get_new_random_position(excluded_positions))
 
-        return self.__get_observation(), {}
+        return self.__get_observations(), {}
 
-    def __update_agent(self, action: int):
+    def __update_agent(self, name: str, action: int):
+        agent = self.__agents[name]
+
         reward = 0
-        old_position = np.array(self.__agent.get_position())
+        old_position = np.array(agent.get_position())
         direction = np.array(AGENT_ACTIONS[action])
         new_position = old_position + direction
 
@@ -271,11 +319,11 @@ class ScavengingAntEnv(Env):
                 # Penalize the agent if it attempted to move out of bounds.
                 reward -= 1
             else:
-                carried_food = self.__agent.get_carried_food()
+                carried_food = agent.get_carried_food()
                 if carried_food is None:
                     for food in self.__food:
                         if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
-                            self.__agent.set_carried_food(food)
+                            agent.set_carried_food(food)
                             food.set_carried(True)
                             break
                     else:
@@ -285,7 +333,7 @@ class ScavengingAntEnv(Env):
                     carried_food.set_position(new_position)
                     for nest in self.__nests:
                         if np.array_equal(nest.get_position(), new_position):
-                            self.__agent.set_carried_food(None)
+                            agent.set_carried_food(None)
                             carried_food.set_hidden(True)
                             reward += 50
                             break
@@ -294,27 +342,30 @@ class ScavengingAntEnv(Env):
                         reward -= 1
 
                 # Move the agent to the new position if the position was valid.
-                self.__agent.set_position(new_position)
+                agent.set_position(new_position)
 
         return reward
 
-    def step(self, action: int):
-        reward = self.__update_agent(action)
-        terminated = True
+    def step(self, actions):
+        rewards = {name: self.__update_agent(name, actions[name]) for name in self.agents}
 
+        terminated = True
         for food in self.__food:
             terminated = food.is_hidden()
             if not terminated:
                 break
 
+        terminations = {name: terminated for name in self.agents}
+        truncations = {name: False for name in self.agents}
+
         if self.render_mode == "human":
             self.render()
 
         return (
-            self.__get_observation(),
-            reward,
-            terminated,
-            False,
+            self.__get_observations(),
+            rewards,
+            terminations,
+            truncations,
             {}
         )
 
@@ -331,13 +382,14 @@ class ScavengingAntEnv(Env):
                 ),
             )
 
-    def __draw_agent(self, canvas):
-        pygame.draw.circle(
-            surface=canvas,
-            color=(229, 69, 23),
-            center=(np.array(self.__agent.get_position()) + 0.50) * self.__square_pixel_width,
-            radius=self.__square_pixel_width / 4,
-        )
+    def __draw_agents(self, canvas):
+        for _, agent in self.__agents.items():
+            pygame.draw.circle(
+                surface=canvas,
+                color=(229, 69, 23),
+                center=(np.array(agent.get_position()) + 0.50) * self.__square_pixel_width,
+                radius=self.__square_pixel_width / 4,
+            )
 
     def __draw_food(self, canvas):
         for food in self.__food:
@@ -405,7 +457,7 @@ class ScavengingAntEnv(Env):
         self.__draw_grass(canvas)
         self.__draw_obstacles(canvas)
         self.__draw_nests(canvas)
-        self.__draw_agent(canvas)
+        self.__draw_agents(canvas)
         self.__draw_food(canvas)
 
         if self.render_mode == "human":
