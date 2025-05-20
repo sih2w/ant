@@ -26,5 +26,5 @@ if __name__ == "__main__":
             if termination:
                 terminated = True
                 break
-
+        # env.reset(seed=0)
         print(observations)

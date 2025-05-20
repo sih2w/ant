@@ -153,6 +153,7 @@ class ScavengingAntEnv(ParallelEnv):
         self.__window = None
         self.__clock = None
         self.__random = np.random.default_rng(seed)
+        self.__step_count = 0
 
         self.possible_agents = ["ant_" + str(index) for index in range(agent_count)]
         self.agents = self.possible_agents[:]
@@ -280,6 +281,7 @@ class ScavengingAntEnv(ParallelEnv):
             agent.set_position([-1, -1])
             agent.set_carried_food(None)
 
+        self.__step_count = 0
         self.__random = np.random.default_rng(seed=seed)
 
         for obstacle in self.__obstacles:
@@ -302,8 +304,8 @@ class ScavengingAntEnv(ParallelEnv):
 
     def __update_agent(self, name: str, action: int):
         agent = self.__agents[name]
-
         reward = 0
+
         old_position = np.array(agent.get_position())
         direction = np.array(AGENT_ACTIONS[action])
         new_position = old_position + direction
@@ -335,7 +337,6 @@ class ScavengingAntEnv(ParallelEnv):
                         if np.array_equal(nest.get_position(), new_position):
                             agent.set_carried_food(None)
                             carried_food.set_hidden(True)
-                            reward += 50
                             break
                     else:
                         # Penalize the agent for taking a step without depositing food in a nest.
@@ -348,12 +349,15 @@ class ScavengingAntEnv(ParallelEnv):
 
     def step(self, actions):
         rewards = {name: self.__update_agent(name, actions[name]) for name in self.agents}
+        self.__step_count += 1
 
         terminated = True
         for food in self.__food:
             terminated = food.is_hidden()
             if not terminated:
                 break
+        else:
+            rewards = {name: 100 for name in self.agents}
 
         terminations = {name: terminated for name in self.agents}
         truncations = {name: False for name in self.agents}
@@ -368,6 +372,9 @@ class ScavengingAntEnv(ParallelEnv):
             truncations,
             {}
         )
+
+    def get_step_count(self):
+        return self.__step_count
 
     def __draw_nests(self, canvas):
         for nest in self.__nests:
