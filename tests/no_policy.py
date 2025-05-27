@@ -20,7 +20,6 @@ if __name__ == "__main__":
             actions[name] = env.action_space(name).sample()
 
         observations, rewards, terminations, truncations, infos = env.step(actions)
-        observations = env.flatten_observations(observations)
 
         for _, termination in terminations.items():
             if termination:

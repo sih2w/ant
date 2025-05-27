@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import functools
 import math
+import random
+import colorsys
+
 import numpy as np
 import pygame
 from gymnasium.spaces import Discrete, Box, Dict
@@ -90,6 +93,11 @@ class Agent(Positionable):
         super().__init__(position)
         self.__carry_capacity = carry_capacity
         self.__carried_food = None
+        self.__color = colorsys.hsv_to_rgb(random.random(), 1, 1)
+        self.__color = (self.__color[0] * 255, self.__color[1] * 255, self.__color[2] * 255)
+
+    def get_color(self):
+        return self.__color
 
     def get_carry_capacity(self):
         return self.__carry_capacity
@@ -155,7 +163,7 @@ class ScavengingAntEnv(ParallelEnv):
         self.__random = np.random.default_rng(seed)
         self.__step_count = 0
 
-        self.possible_agents = ["ant_" + str(index) for index in range(agent_count)]
+        self.possible_agents = ["agent_" + str(index) for index in range(agent_count)]
         self.agents = self.possible_agents[:]
         self.render_mode = render_mode
         self.render_fps = render_fps
@@ -191,20 +199,6 @@ class ScavengingAntEnv(ParallelEnv):
                 )
             )
 
-    @staticmethod
-    def flatten_observations(observations):
-        for name, observation in observations.items():
-            observations[name] = (
-            observation["position"][0],
-            observation["position"][1],
-            observation["at_obstacle"],
-            observation["at_food"],
-            observation["at_nest"],
-            observation["carrying_food"]
-        )
-
-        return observations
-
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent: str):
         return Discrete(len(AGENT_ACTIONS))
@@ -218,9 +212,6 @@ class ScavengingAntEnv(ParallelEnv):
                 shape=(2, ),
                 dtype=np.int16
             ),
-            "at_obstacle": Discrete(2),
-            "at_food": Discrete(2),
-            "at_nest": Discrete(2),
             "carrying_food": Discrete(2),
         })
 
@@ -254,9 +245,6 @@ class ScavengingAntEnv(ParallelEnv):
 
         return {
             "position": agent_position,
-            "at_obstacle": agent_position in Positionable.get_positions(self.__obstacles),
-            "at_food": agent_position in Positionable.get_positions(self.__food),
-            "at_nest": agent_position in Positionable.get_positions(self.__nests),
             "carrying_food": agent.get_carried_food() is not None,
         }
 
@@ -356,8 +344,6 @@ class ScavengingAntEnv(ParallelEnv):
             terminated = food.is_hidden()
             if not terminated:
                 break
-        else:
-            rewards = {name: 100 for name in self.agents}
 
         terminations = {name: terminated for name in self.agents}
         truncations = {name: False for name in self.agents}
@@ -393,7 +379,7 @@ class ScavengingAntEnv(ParallelEnv):
         for _, agent in self.__agents.items():
             pygame.draw.circle(
                 surface=canvas,
-                color=(229, 69, 23),
+                color=agent.get_color(),
                 center=(np.array(agent.get_position()) + 0.50) * self.__square_pixel_width,
                 radius=self.__square_pixel_width / 4,
             )
@@ -449,6 +435,7 @@ class ScavengingAntEnv(ParallelEnv):
         if self.render_mode == "human":
             if self.__window is None:
                 pygame.init()
+                pygame.display.set_caption("Scavenging Ant")
                 self.__window = pygame.display.set_mode(window_size)
 
             if self.__clock is None:
