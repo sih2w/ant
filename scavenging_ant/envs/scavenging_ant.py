@@ -7,7 +7,7 @@ import colorsys
 
 import numpy as np
 import pygame
-from gymnasium.spaces import Discrete, Box, Dict
+from gymnasium.spaces import Discrete, Box, Dict, Tuple
 from pettingzoo import ParallelEnv
 from pettingzoo.utils import parallel_to_aec, wrappers
 
@@ -15,7 +15,8 @@ AGENT_ACTIONS = [
     [0, 1], # Move down
     [0, -1], # Move up
     [-1, 0], # Move left
-    [1, 0], # Move right
+    [1, 0], # Move right,
+    [0, 0] # Stay
 ]
 
 class Positionable:
@@ -206,13 +207,24 @@ class ScavengingAntEnv(ParallelEnv):
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent: str):
         return Dict({
-            "position": Box(
+            "agent_position": Box(
                 low=np.array([-1, -1]),
                 high=np.array([self.__grid_width, self.__grid_height]),
                 shape=(2, ),
                 dtype=np.int16
             ),
             "carrying_food": Discrete(2),
+            "dropped_food_count": Discrete(self.__food_count),
+            "dropped_food_positions": Tuple(
+               *{
+                   Box(
+                       low=np.array([-1, -1]),
+                       high=np.array([self.__grid_width, self.__grid_height]),
+                       shape=(2,),
+                       dtype=np.int16
+                   ) for _ in range(len(self.__food))
+               }
+           )
         })
 
     def __get_random_position(self):
@@ -242,10 +254,19 @@ class ScavengingAntEnv(ParallelEnv):
     def __get_observation(self, agent: str):
         agent = self.__agents[agent]
         agent_position = agent.get_position()
+        dropped_food_positions = []
+
+        for food in self.__food:
+            if not food.is_hidden() and not food.is_carried():
+                dropped_food_positions.append(food.get_position())
+            else:
+                dropped_food_positions.append([-1, -1])
 
         return {
-            "position": agent_position,
+            "agent_position": agent_position,
             "carrying_food": agent.get_carried_food() is not None,
+            "dropped_food_positions": tuple(dropped_food_positions),
+            "dropped_food_count": len(dropped_food_positions),
         }
 
     def __get_observations(self):
@@ -298,40 +319,49 @@ class ScavengingAntEnv(ParallelEnv):
         direction = np.array(AGENT_ACTIONS[action])
         new_position = old_position + direction
 
-        for obstacle in self.__obstacles:
-            if np.array_equal(new_position, obstacle.get_position()):
-                # Penalize the agent if it attempted to move into an obstacle.
-                reward -= 1
-                break
+        if np.array_equal(old_position, new_position):
+            for food in self.__food:
+                if not food.is_hidden() and not food.is_carried():
+                    # Penalize the agent for staying if there is food remaining.
+                    reward -= 1
+                    break
         else:
-            clipped_position = np.clip(new_position, [0, 0], [self.__grid_width - 1, self.__grid_height - 1])
-            if np.array_equal(clipped_position, old_position):
-                # Penalize the agent if it attempted to move out of bounds.
-                reward -= 1
+            for obstacle in self.__obstacles:
+                if np.array_equal(new_position, obstacle.get_position()):
+                    # Penalize the agent if it attempted to move into an obstacle.
+                    reward -= 1
+                    break
             else:
-                carried_food = agent.get_carried_food()
-                if carried_food is None:
-                    for food in self.__food:
-                        if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
-                            agent.set_carried_food(food)
-                            food.set_carried(True)
-                            break
-                    else:
-                        # Penalize the agent for taking a step without picking up food.
-                        reward -= 1
+                clipped_position = np.clip(new_position, [0, 0], [self.__grid_width - 1, self.__grid_height - 1])
+                if np.array_equal(clipped_position, old_position):
+                    # Penalize the agent if it attempted to move out of bounds.
+                    reward -= 1
                 else:
-                    carried_food.set_position(new_position)
-                    for nest in self.__nests:
-                        if np.array_equal(nest.get_position(), new_position):
-                            agent.set_carried_food(None)
-                            carried_food.set_hidden(True)
-                            break
+                    carried_food = agent.get_carried_food()
+                    if carried_food is None:
+                        for food in self.__food:
+                            if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
+                                agent.set_carried_food(food)
+                                food.set_carried(True)
+                                reward += 1
+                                break
+                        else:
+                            # Penalize the agent for taking a step without picking up food.
+                            reward -= 1
                     else:
-                        # Penalize the agent for taking a step without depositing food in a nest.
-                        reward -= 1
+                        carried_food.set_position(new_position)
+                        for nest in self.__nests:
+                            if np.array_equal(nest.get_position(), new_position):
+                                agent.set_carried_food(None)
+                                carried_food.set_hidden(True)
+                                reward += 1
+                                break
+                        else:
+                            # Penalize the agent for taking a step without depositing food in a nest.
+                            reward -= 1
 
-                # Move the agent to the new position if the position was valid.
-                agent.set_position(new_position)
+                    # Move the agent to the new position if the position was valid.
+                    agent.set_position(new_position)
 
         return reward
 
@@ -347,6 +377,9 @@ class ScavengingAntEnv(ParallelEnv):
 
         terminations = {name: terminated for name in self.agents}
         truncations = {name: False for name in self.agents}
+
+        if terminated:
+            rewards = {name: 100 for name in self.agents}
 
         if self.render_mode == "human":
             self.render()

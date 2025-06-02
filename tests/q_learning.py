@@ -1,55 +1,81 @@
+import math
 import numpy as np
 import scavenging_ant.envs.scavenging_ant as scavenging_ant
 from collections import defaultdict
 from copy import deepcopy
 from tqdm import tqdm
 
-def create_env(render_mode: str = None, seed: int = 0, grid_width: int = 10, grid_height: int = 5):
+def create_env(
+        render_mode: str = None,
+        seed: int = 0,
+        grid_width: int = 10,
+        grid_height: int = 5,
+        agent_count: int = 1,
+        food_count: int = 1,
+        percent_obstacles: float = 0.10,
+        render_fps: int = 5,
+):
     return scavenging_ant.ScavengingAntEnv(
         render_mode=render_mode,
-        render_fps=5,
-        grid_height=grid_height, # 5
-        grid_width=grid_width, # 7
+        render_fps=render_fps,
+        grid_height=grid_height,
+        grid_width=grid_width,
         seed=seed,
-        food_count=7, # 10
-        nest_count=1, # 1
-        agent_count=3, # 2
-        percent_obstacles=0.30 # 0.10
+        food_count=food_count,
+        nest_count=1,
+        agent_count=agent_count,
+        percent_obstacles=percent_obstacles,
     )
 
 def flatten_observations(observations):
     for name, observation in observations.items():
+        positions = [*observation["agent_position"]]
+        for position in observation["dropped_food_positions"]:
+            positions.append(position[0])
+            positions.append(position[1])
+
         observations[name] = (
-        observation["position"][0],
-        observation["position"][1],
-        observation["carrying_food"]
-    )
+            observation["carrying_food"],
+            observation["dropped_food_count"],
+            *positions
+        )
 
     return observations
 
 if __name__ == "__main__":
-    episodes = 5_000
+    episodes = 10_000
     seed = 0
     grid_width = 7
     grid_height = 5
+    agent_count = 2
+    food_count = 5
+    percent_obstacles = 0.10
 
     env = create_env(
         render_mode=None,
         seed=seed,
         grid_width=grid_width,
-        grid_height=grid_height
+        grid_height=grid_height,
+        agent_count=agent_count,
+        food_count=food_count,
+        percent_obstacles=percent_obstacles,
+        render_fps=1000
     )
 
     q = {name: defaultdict(lambda: np.zeros(env.action_space(name).n)) for name in env.agents}
     rng = np.random.default_rng()
 
-    learning_rate_alpha = 0.01
-    discount_factor_gamma = 0.70
+    learning_rate_alpha = 0.10
+    discount_factor_gamma = 0.95
     epsilon = 1
     epsilon_decay_rate = epsilon / (episodes / 2)
 
     episode = 0
     pbar = tqdm(total=episodes)
+    max_steps_per_episode = math.floor(
+        grid_width * grid_height * agent_count * food_count * (percent_obstacles * grid_width * grid_height)
+    )
+    print("Max steps per episode:", max_steps_per_episode)
 
     while episode < episodes:
         temp_q = deepcopy(q)
@@ -68,7 +94,7 @@ if __name__ == "__main__":
             new_observations, rewards, terminations, truncations, _ = env.step(actions)
             new_observations = flatten_observations(new_observations)
 
-            use_episode = env.get_step_count() <= 1000
+            use_episode = env.get_step_count() <= max_steps_per_episode
             if not use_episode:
                 break
 
@@ -105,7 +131,10 @@ if __name__ == "__main__":
         render_mode="human",
         seed=seed,
         grid_width=grid_width,
-        grid_height=grid_height
+        grid_height=grid_height,
+        agent_count=agent_count,
+        food_count=food_count,
+        percent_obstacles=percent_obstacles,
     )
 
     for episode in range(episodes):
