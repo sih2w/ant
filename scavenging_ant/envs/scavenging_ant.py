@@ -142,18 +142,18 @@ class ScavengingAntEnv(ParallelEnv):
             grid_width: int = 20,
             grid_height: int = 10,
             square_pixel_width: int = 80,
-            percent_obstacles: float = 0.10,
             render_mode: str = None,
             render_fps: int = 10,
             nest_count: int = 1,
             food_count: int = 1,
             agent_count: int = 1,
+            obstacle_count: int = 1,
             seed: int = np.random.randint(1, 1000),
     ):
         self.__grid_width = grid_width
         self.__grid_height = grid_height
         self.__square_pixel_width = square_pixel_width
-        self.__obstacle_count = self.__percent_to_count(percent_obstacles)
+        self.__obstacle_count = math.floor(min(grid_width * grid_height * 0.10, obstacle_count))
         self.__food_count = food_count
         self.__nest_count = nest_count
         self.__food = []
@@ -247,10 +247,6 @@ class ScavengingAntEnv(ParallelEnv):
 
         return self.__get_random_position()
 
-    def __percent_to_count(self, percent: float):
-        cell_count = self.__grid_width * self.__grid_height
-        return math.floor(cell_count * percent)
-
     def __get_observation(self, agent: str):
         agent = self.__agents[agent]
         agent_position = agent.get_position()
@@ -320,11 +316,18 @@ class ScavengingAntEnv(ParallelEnv):
         new_position = old_position + direction
 
         if np.array_equal(old_position, new_position):
-            for food in self.__food:
-                if not food.is_hidden() and not food.is_carried():
-                    # Penalize the agent for staying if there is food remaining.
-                    reward -= 1
-                    break
+            if agent.get_carried_food() is not None:
+                # Penalize the agent for staying when it is carrying food.
+                reward -= 1
+            else:
+                for food in self.__food:
+                    if not food.is_hidden() and not food.is_carried():
+                        # Penalize the agent for staying if there is food remaining.
+                        reward -= 1
+                        break
+                else:
+                    # Reward the agent for staying when there is no more food to pick up.
+                    reward += 1
         else:
             for obstacle in self.__obstacles:
                 if np.array_equal(new_position, obstacle.get_position()):
@@ -343,6 +346,7 @@ class ScavengingAntEnv(ParallelEnv):
                             if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
                                 agent.set_carried_food(food)
                                 food.set_carried(True)
+                                # Reward the agent for picking up food.
                                 reward += 1
                                 break
                         else:
@@ -354,6 +358,7 @@ class ScavengingAntEnv(ParallelEnv):
                             if np.array_equal(nest.get_position(), new_position):
                                 agent.set_carried_food(None)
                                 carried_food.set_hidden(True)
+                                # Reward the agent for depositing food.
                                 reward += 1
                                 break
                         else:
@@ -379,6 +384,7 @@ class ScavengingAntEnv(ParallelEnv):
         truncations = {name: False for name in self.agents}
 
         if terminated:
+            # Reward each agent for depositing all food.
             rewards = {name: 100 for name in self.agents}
 
         if self.render_mode == "human":
