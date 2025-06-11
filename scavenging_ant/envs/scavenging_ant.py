@@ -4,6 +4,7 @@ import functools
 import math
 import random
 import colorsys
+from typing import Callable
 
 import numpy as np
 import pygame
@@ -95,7 +96,7 @@ class Agent(Positionable):
         self.__carry_capacity = carry_capacity
         self.__carried_food = None
         self.__color = colorsys.hsv_to_rgb(random.random(), 1, 1)
-        self.__color = (self.__color[0] * 255, self.__color[1] * 255, self.__color[2] * 255)
+        self.__color = (int(self.__color[0] * 255), int(self.__color[1] * 255), int(self.__color[2] * 255))
 
     def get_color(self):
         return self.__color
@@ -149,6 +150,8 @@ class ScavengingAntEnv(ParallelEnv):
             agent_count: int = 1,
             obstacle_count: int = 1,
             seed: int = np.random.randint(1, 1000),
+            prerender_callback: Callable = None,
+            post_render_callback: Callable = None,
     ):
         self.__grid_width = grid_width
         self.__grid_height = grid_height
@@ -163,6 +166,8 @@ class ScavengingAntEnv(ParallelEnv):
         self.__clock = None
         self.__random = np.random.default_rng(seed)
         self.__step_count = 0
+        self.__prerender_callback = prerender_callback
+        self.__post_render_callback = post_render_callback
 
         self.possible_agents = ["agent_" + str(index) for index in range(agent_count)]
         self.agents = self.possible_agents[:]
@@ -270,6 +275,15 @@ class ScavengingAntEnv(ParallelEnv):
             name: self.__get_observation(name) for name in self.possible_agents
         }
 
+    def __get_info(self):
+        info = {}
+        for name in self.agents:
+            info[name] = {
+                "agent_color": self.__agents[name].get_color()
+            }
+
+        return info
+
     def reset(self, seed: int = None, options = None):
         for obstacle in self.__obstacles:
             obstacle.set_position([-1, -1])
@@ -305,7 +319,7 @@ class ScavengingAntEnv(ParallelEnv):
         for _, agent in self.__agents.items():
             agent.set_position(self.__get_new_random_position(excluded_positions))
 
-        return self.__get_observations(), {}
+        return self.__get_observations(), self.__get_info()
 
     def __update_agent(self, name: str, action: int):
         agent = self.__agents[name]
@@ -395,7 +409,7 @@ class ScavengingAntEnv(ParallelEnv):
             rewards,
             terminations,
             truncations,
-            {}
+            self.__get_info()
         )
 
     def get_step_count(self):
@@ -487,11 +501,17 @@ class ScavengingAntEnv(ParallelEnv):
 
         canvas = pygame.Surface(window_size)
 
+        if self.__window is not None and self.__prerender_callback is not None:
+            self.__prerender_callback(canvas, self.__window)
+
         self.__draw_grass(canvas)
         self.__draw_obstacles(canvas)
         self.__draw_nests(canvas)
         self.__draw_agents(canvas)
         self.__draw_food(canvas)
+
+        if self.__window is not None and self.__post_render_callback is not None:
+            self.__post_render_callback(canvas, self.__window)
 
         if self.render_mode == "human":
             self.__window.blit(canvas, canvas.get_rect())

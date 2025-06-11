@@ -1,5 +1,7 @@
+from typing import Callable
 import numpy as np
 import pickle
+import pygame
 import scavenging_ant.envs.scavenging_ant as scavenging_ant
 from collections import defaultdict
 from copy import deepcopy
@@ -14,6 +16,9 @@ def create_env(
         food_count: int = 1,
         obstacle_count: int = 1,
         render_fps: int = 5,
+        post_render_callback: Callable = None,
+        square_pixel_width: int = 60,
+        nest_count: int = 1,
 ):
     return scavenging_ant.ScavengingAntEnv(
         render_mode=render_mode,
@@ -22,29 +27,41 @@ def create_env(
         grid_width=grid_width,
         seed=seed,
         food_count=food_count,
-        nest_count=1,
+        nest_count=nest_count,
         agent_count=agent_count,
         obstacle_count=obstacle_count,
+        square_pixel_width=square_pixel_width,
+        post_render_callback=post_render_callback,
+    )
+
+def flatten_observation(observation):
+    positions = [*observation["agent_position"]]
+    for position in observation["dropped_food_positions"]:
+        positions.append(position[0])
+        positions.append(position[1])
+
+    return (
+        observation["carrying_food"],
+        observation["dropped_food_count"],
+        *positions
     )
 
 def flatten_observations(observations):
-    for name, observation in observations.items():
-        positions = [*observation["agent_position"]]
-        for position in observation["dropped_food_positions"]:
-            positions.append(position[0])
-            positions.append(position[1])
-
-        observations[name] = (
-            observation["carrying_food"],
-            observation["dropped_food_count"],
-            *positions
-        )
+    for agent_name, observation in observations.items():
+        observations[agent_name] = flatten_observation(observation)
 
     return observations
 
+def darken(color: tuple[int, int, int], percent: float):
+    return (
+        int(color[0] * (1 - percent)),
+        int(color[1] * (1 - percent)),
+        int(color[2] * (1 - percent))
+    )
+
 if __name__ == "__main__":
     # Learning parameters
-    episodes = 2_000
+    episodes = 1_000
     seed = 0
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
@@ -53,11 +70,13 @@ if __name__ == "__main__":
     max_steps_per_episode = 1000
 
     # Environment parameters
-    grid_width = 7
-    grid_height = 5
+    grid_width = 10
+    grid_height = 7
     agent_count = 2
     food_count = 5
-    obstacle_count = 1
+    obstacle_count = 10
+    nest_count = 1
+    square_pixel_width = 80
 
     loaded_from_file = False
     file_name = (
@@ -70,6 +89,7 @@ if __name__ == "__main__":
         f"height_{grid_height}_"
         f"agent_{agent_count}_"
         f"food_{food_count}_"
+        f"nest_{nest_count}_"
         f"obstacle_{obstacle_count}"
     )
 
@@ -89,6 +109,7 @@ if __name__ == "__main__":
             agent_count=agent_count,
             food_count=food_count,
             obstacle_count=obstacle_count,
+            nest_count=nest_count,
             render_fps=1000
         )
 
@@ -140,7 +161,7 @@ if __name__ == "__main__":
 
             if use_episode:
                 q = episode_q  # Overwrite the current Q table with the updates made during the episode.
-                epsilon = max(epsilon - epsilon_decay_rate, 0.01)
+                epsilon = max(epsilon - epsilon_decay_rate, 0.10)
                 pbar.update(1)
                 episode = episode + 1
 
@@ -160,6 +181,64 @@ if __name__ == "__main__":
             pickle.dump(saved_q, file)
             print("Saved to file")
 
+    # Settings for visualizing agent policy
+    selected_agent_name = "agent_0"
+    selected_agent_observation = None
+    selected_agent_color = None
+    padding = 0.40
+
+    def post_render_callback(canvas, window):
+        if selected_agent_observation is None:
+            return
+
+        for row in range(grid_height):
+            for column in range(grid_width):
+                # Copy the current observation of the agent and then update the
+                # agent's position to be the grid position of the current cell. This
+                # will return the policy for a specific position.
+                grid_observation = deepcopy(selected_agent_observation)
+                grid_observation["agent_position"] = (column, row)
+                grid_observation = flatten_observation(grid_observation)
+
+                actions = q[selected_agent_name].get(grid_observation)
+                if actions is not None:
+                    top_point = (
+                        (column * square_pixel_width) + (square_pixel_width / 2),
+                        (row * square_pixel_width) + (square_pixel_width * padding)
+                    )
+                    left_point = (
+                        (column * square_pixel_width) + (square_pixel_width * padding),
+                        (row * square_pixel_width) + (square_pixel_width / 2)
+                    )
+                    right_point = (
+                        (column * square_pixel_width) + square_pixel_width - (square_pixel_width * padding),
+                        (row * square_pixel_width) + (square_pixel_width / 2)
+                    )
+                    bottom_point = (
+                        (column * square_pixel_width) + (square_pixel_width / 2),
+                        (row * square_pixel_width) + square_pixel_width - (square_pixel_width * padding)
+                    )
+
+                    action = np.argmax(actions)
+                    points = []
+
+                    if action == 0:
+                        points = [left_point, bottom_point, right_point]
+                    elif action == 1:
+                        points = [left_point, top_point, right_point]
+                    elif action == 2:
+                        points = [left_point, top_point, bottom_point]
+                    elif action == 3:
+                        points = [right_point, top_point, bottom_point]
+
+                    if len(points) > 0:
+                        # Draw a triangle to represent the favored move direction.
+                        pygame.draw.polygon(
+                            surface=canvas,
+                            color=selected_agent_color,
+                            points=points
+                        )
+
     # Create a new environment with human rendering.
     env = create_env(
         render_mode="human",
@@ -169,11 +248,15 @@ if __name__ == "__main__":
         agent_count=agent_count,
         food_count=food_count,
         obstacle_count=obstacle_count,
+        nest_count=nest_count,
+        post_render_callback=post_render_callback,
+        square_pixel_width=square_pixel_width,
+        render_fps=1
     )
 
     # Visualize trained model.
     for episode in range(episodes):
-        observations, _ = env.reset(seed=seed)
+        observations, info = env.reset(seed=seed)
         observations = flatten_observations(observations)
 
         terminated = False
@@ -181,9 +264,11 @@ if __name__ == "__main__":
 
         while not terminated and not truncated:
             actions = {agent_name: np.argmax(q[agent_name][observations[agent_name]]) for agent_name in env.agents}
-            observations, rewards, terminations, truncations, _ = env.step(actions)
-            observations = flatten_observations(observations)
+            observations, rewards, terminations, truncations, info = env.step(actions)
+            selected_agent_color = info[selected_agent_name]["agent_color"]
+            selected_agent_observation = observations[selected_agent_name]
 
+            observations = flatten_observations(observations)
             for _, termination in terminations.items():
                 terminated = termination
                 if terminated:
