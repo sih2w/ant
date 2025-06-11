@@ -52,13 +52,6 @@ def flatten_observations(observations):
 
     return observations
 
-def darken(color: tuple[int, int, int], percent: float):
-    return (
-        int(color[0] * (1 - percent)),
-        int(color[1] * (1 - percent)),
-        int(color[2] * (1 - percent))
-    )
-
 if __name__ == "__main__":
     # Learning parameters
     episodes = 1_000
