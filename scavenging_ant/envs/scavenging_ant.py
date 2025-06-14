@@ -1,16 +1,13 @@
 from __future__ import annotations
-
+from typing import Callable
 import functools
 import math
 import random
 import colorsys
-from typing import Callable
-
 import numpy as np
 import pygame
 from gymnasium.spaces import Discrete, Box, Dict, Tuple
 from pettingzoo import ParallelEnv
-from pettingzoo.utils import parallel_to_aec, wrappers
 
 AGENT_ACTIONS = [
     [0, 1], # Move down
@@ -118,17 +115,6 @@ class Obstacle(Positionable):
         super().__init__(position)
         self.__position = position
 
-def raw_env(render_mode=None, **kwargs):
-    env = ScavengingAntEnv(render_mode=render_mode, **kwargs)
-    env = parallel_to_aec(env)
-    return env
-
-def env(render_mode=None, **kwargs):
-    env = raw_env(render_mode=render_mode, **kwargs)
-    env = wrappers.AssertOutOfBoundsWrapper(env)
-    env = wrappers.OrderEnforcingWrapper(env)
-    return env
-
 class ScavengingAntEnv(ParallelEnv):
     metadata = {
         "render_fps": 30,
@@ -148,6 +134,7 @@ class ScavengingAntEnv(ParallelEnv):
             nest_count: int = 1,
             food_count: int = 1,
             agent_count: int = 1,
+            agent_vision_radius: int = 1,
             obstacle_count: int = 1,
             seed: int = np.random.randint(1, 1000),
             prerender_callback: Callable = None,
@@ -166,6 +153,7 @@ class ScavengingAntEnv(ParallelEnv):
         self.__clock = None
         self.__random = np.random.default_rng(seed)
         self.__step_count = 0
+        self.__agent_vision_radius = agent_vision_radius
         self.__prerender_callback = prerender_callback
         self.__post_render_callback = post_render_callback
 
@@ -228,8 +216,16 @@ class ScavengingAntEnv(ParallelEnv):
                        shape=(2,),
                        dtype=np.int16
                    ) for _ in range(len(self.__food))
-               }
-           )
+               }),
+            "nearby_agent_positions": Tuple(
+                *{
+                    Box(
+                        low=np.array([-1, -1]),
+                        high=np.array([self.__grid_width, self.__grid_height]),
+                        shape=(2,),
+                        dtype=np.int16
+                    ) for _ in range(len(self.possible_agents) - 1)
+                })
         })
 
     def __get_random_position(self):
@@ -252,8 +248,8 @@ class ScavengingAntEnv(ParallelEnv):
 
         return self.__get_random_position()
 
-    def __get_observation(self, agent: str):
-        agent = self.__agents[agent]
+    def __get_observation(self, agent_name: str):
+        agent = self.__agents[agent_name]
         agent_position = agent.get_position()
         dropped_food_positions = []
 
@@ -263,23 +259,35 @@ class ScavengingAntEnv(ParallelEnv):
             else:
                 dropped_food_positions.append([-1, -1])
 
+        nearby_agent_positions = []
+        for other_agent_name, other_agent in self.__agents.items():
+            if agent_name != other_agent_name:
+                other_agent_position = other_agent.get_position()
+                direction = np.array(other_agent_position) - np.array(agent_position)
+
+                if np.linalg.norm(direction) <= self.__agent_vision_radius:
+                    nearby_agent_positions.append(other_agent_position)
+                else:
+                    nearby_agent_positions.append([-1, -1])
+
         return {
             "agent_position": agent_position,
             "carrying_food": agent.get_carried_food() is not None,
             "dropped_food_positions": tuple(dropped_food_positions),
             "dropped_food_count": len(dropped_food_positions),
+            "nearby_agent_positions": tuple(nearby_agent_positions),
         }
 
     def __get_observations(self):
         return {
-            name: self.__get_observation(name) for name in self.possible_agents
+            agent_name: self.__get_observation(agent_name) for agent_name in self.possible_agents
         }
 
     def __get_info(self):
         info = {}
-        for name in self.agents:
-            info[name] = {
-                "agent_color": self.__agents[name].get_color()
+        for agent_name in self.agents:
+            info[agent_name] = {
+                "agent_color": self.__agents[agent_name].get_color()
             }
 
         return info
@@ -321,8 +329,8 @@ class ScavengingAntEnv(ParallelEnv):
 
         return self.__get_observations(), self.__get_info()
 
-    def __update_agent(self, name: str, action: int):
-        agent = self.__agents[name]
+    def __update_agent(self, agent_name: str, action: int):
+        agent = self.__agents[agent_name]
         reward = 0
 
         old_position = np.array(agent.get_position())
@@ -385,7 +393,7 @@ class ScavengingAntEnv(ParallelEnv):
         return reward
 
     def step(self, actions):
-        rewards = {name: self.__update_agent(name, actions[name]) for name in self.agents}
+        rewards = {agent_name: self.__update_agent(agent_name, actions[agent_name]) for agent_name in self.agents}
         self.__step_count += 1
 
         terminated = True
@@ -394,12 +402,12 @@ class ScavengingAntEnv(ParallelEnv):
             if not terminated:
                 break
 
-        terminations = {name: terminated for name in self.agents}
-        truncations = {name: False for name in self.agents}
+        terminations = {agent_name: terminated for agent_name in self.agents}
+        truncations = {agent_name: False for agent_name in self.agents}
 
         if terminated:
             # Reward each agent for depositing all food.
-            rewards = {name: 100 for name in self.agents}
+            rewards = {agent_name: 100 for agent_name in self.agents}
 
         if self.render_mode == "human":
             self.render()

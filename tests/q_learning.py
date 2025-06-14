@@ -19,6 +19,7 @@ def create_env(
         post_render_callback: Callable = None,
         square_pixel_width: int = 60,
         nest_count: int = 1,
+        agent_vision_radius: int = 5
 ):
     return scavenging_ant.ScavengingAntEnv(
         render_mode=render_mode,
@@ -32,11 +33,16 @@ def create_env(
         obstacle_count=obstacle_count,
         square_pixel_width=square_pixel_width,
         post_render_callback=post_render_callback,
+        agent_vision_radius=agent_vision_radius,
     )
 
 def flatten_observation(observation):
     positions = [*observation["agent_position"]]
     for position in observation["dropped_food_positions"]:
+        positions.append(position[0])
+        positions.append(position[1])
+
+    for position in observation["nearby_agent_positions"]:
         positions.append(position[0])
         positions.append(position[1])
 
@@ -54,7 +60,7 @@ def flatten_observations(observations):
 
 if __name__ == "__main__":
     # Learning parameters
-    episodes = 1_000
+    episodes = 5_000
     seed = 0
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
@@ -65,11 +71,12 @@ if __name__ == "__main__":
     # Environment parameters
     grid_width = 10
     grid_height = 7
-    agent_count = 2
+    agent_count = 3
     food_count = 5
     obstacle_count = 10
-    nest_count = 1
+    nest_count = 2
     square_pixel_width = 80
+    agent_vision_radius = 1
 
     loaded_from_file = False
     file_name = (
@@ -84,6 +91,7 @@ if __name__ == "__main__":
         f"food_{food_count}_"
         f"nest_{nest_count}_"
         f"obstacle_{obstacle_count}"
+        f"agent_vision_radius_{agent_vision_radius}"
     )
 
     try:
@@ -103,7 +111,8 @@ if __name__ == "__main__":
             food_count=food_count,
             obstacle_count=obstacle_count,
             nest_count=nest_count,
-            render_fps=1000
+            render_fps=1000,
+            agent_vision_radius=agent_vision_radius,
         )
 
         q = {agent_name: defaultdict(lambda: np.zeros(env.action_space(agent_name).n)) for agent_name in env.agents}
@@ -244,7 +253,8 @@ if __name__ == "__main__":
         nest_count=nest_count,
         post_render_callback=post_render_callback,
         square_pixel_width=square_pixel_width,
-        render_fps=1
+        render_fps=1,
+        agent_vision_radius=agent_vision_radius,
     )
 
     # Visualize trained model.
