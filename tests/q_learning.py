@@ -42,13 +42,10 @@ def flatten_observation(observation):
         positions.append(position[0])
         positions.append(position[1])
 
-    for position in observation["nearby_agent_positions"]:
-        positions.append(position[0])
-        positions.append(position[1])
-
     return (
         observation["carrying_food"],
         observation["dropped_food_count"],
+        observation["agent_detected"],
         *positions
     )
 
@@ -60,7 +57,7 @@ def flatten_observations(observations):
 
 if __name__ == "__main__":
     # Learning parameters
-    episodes = 5_000
+    episodes = 3_000
     seed = 0
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
@@ -69,12 +66,12 @@ if __name__ == "__main__":
     max_steps_per_episode = 1000
 
     # Environment parameters
-    grid_width = 10
-    grid_height = 7
-    agent_count = 3
+    grid_width = 15
+    grid_height = 9
+    agent_count = 2
     food_count = 5
     obstacle_count = 10
-    nest_count = 2
+    nest_count = 1
     square_pixel_width = 80
     agent_vision_radius = 1
 
@@ -135,7 +132,7 @@ if __name__ == "__main__":
                     else:
                         actions[agent_name] = env.action_space(agent_name).sample()
 
-                new_observations, rewards, terminations, truncations, _ = env.step(actions)
+                new_observations, rewards, terminations, truncations, infos = env.step(actions)
                 new_observations = flatten_observations(new_observations)
 
                 use_episode = env.get_step_count() <= max_steps_per_episode
@@ -158,6 +155,13 @@ if __name__ == "__main__":
                 # Update the Q table for each agent.
                 for agent_name, new_observation in new_observations.items():
                     episode_q[agent_name][observations[agent_name]][actions[agent_name]] = episode_q[agent_name][observations[agent_name]][actions[agent_name]] + learning_rate_alpha * (rewards[agent_name] + discount_factor_gamma * np.max(q[agent_name][new_observation]) - episode_q[agent_name][observations[agent_name]][actions[agent_name]])
+
+                # For each agent who is within proximity of another agent, fill in missing Q-values.
+                for agent_name, info in infos.items():
+                    for other_agent_name in info["nearby_agents"]:
+                        for observation, actions in episode_q[other_agent_name].items():
+                            if episode_q[agent_name].get(observation) is None:
+                                episode_q[agent_name][observation] = deepcopy(actions)
 
                 observations = new_observations
 
@@ -184,12 +188,16 @@ if __name__ == "__main__":
             print("Saved to file")
 
     # Settings for visualizing agent policy
-    selected_agent_name = "agent_0"
+    selected_agent_index = 0
+    switching_agent = False
     selected_agent_observation = None
     selected_agent_color = None
     padding = 0.40
 
     def post_render_callback(canvas, window):
+        global selected_agent_index
+        global switching_agent
+
         if selected_agent_observation is None:
             return
 
@@ -202,7 +210,7 @@ if __name__ == "__main__":
                 grid_observation["agent_position"] = (column, row)
                 grid_observation = flatten_observation(grid_observation)
 
-                actions = q[selected_agent_name].get(grid_observation)
+                actions = q[f"agent_{selected_agent_index}"].get(grid_observation)
                 if actions is not None:
                     top_point = (
                         (column * square_pixel_width) + (square_pixel_width / 2),
@@ -241,6 +249,17 @@ if __name__ == "__main__":
                             points=points
                         )
 
+        keys = pygame.key.get_pressed()
+
+        if keys[pygame.K_SPACE]:
+            if not switching_agent:
+                switching_agent = True
+                selected_agent_index += 1
+                if selected_agent_index >= agent_count:
+                    selected_agent_index = 0
+        else:
+            switching_agent = False
+
     # Create a new environment with human rendering.
     env = create_env(
         render_mode="human",
@@ -268,8 +287,8 @@ if __name__ == "__main__":
         while not terminated and not truncated:
             actions = {agent_name: np.argmax(q[agent_name][observations[agent_name]]) for agent_name in env.agents}
             observations, rewards, terminations, truncations, info = env.step(actions)
-            selected_agent_color = info[selected_agent_name]["agent_color"]
-            selected_agent_observation = observations[selected_agent_name]
+            selected_agent_color = info[f"agent_{selected_agent_index}"]["agent_color"]
+            selected_agent_observation = observations[f"agent_{selected_agent_index}"]
 
             observations = flatten_observations(observations)
             for _, termination in terminations.items():

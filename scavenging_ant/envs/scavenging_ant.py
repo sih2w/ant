@@ -217,15 +217,7 @@ class ScavengingAntEnv(ParallelEnv):
                        dtype=np.int16
                    ) for _ in range(len(self.__food))
                }),
-            "nearby_agent_positions": Tuple(
-                *{
-                    Box(
-                        low=np.array([-1, -1]),
-                        high=np.array([self.__grid_width, self.__grid_height]),
-                        shape=(2,),
-                        dtype=np.int16
-                    ) for _ in range(len(self.possible_agents) - 1)
-                })
+            "agent_detected": Discrete(2)
         })
 
     def __get_random_position(self):
@@ -248,6 +240,20 @@ class ScavengingAntEnv(ParallelEnv):
 
         return self.__get_random_position()
 
+    def __get_nearby_agents(self, agent: Agent, agent_name: str):
+        nearby_agents = []
+        agent_position = agent.get_position()
+
+        for other_agent_name, other_agent in self.__agents.items():
+            if agent_name != other_agent_name:
+                other_agent_position = other_agent.get_position()
+                direction = np.array(other_agent_position) - np.array(agent_position)
+
+                if np.linalg.norm(direction) <= self.__agent_vision_radius:
+                    nearby_agents.append(other_agent_name)
+
+        return nearby_agents
+
     def __get_observation(self, agent_name: str):
         agent = self.__agents[agent_name]
         agent_position = agent.get_position()
@@ -259,23 +265,12 @@ class ScavengingAntEnv(ParallelEnv):
             else:
                 dropped_food_positions.append([-1, -1])
 
-        nearby_agent_positions = []
-        for other_agent_name, other_agent in self.__agents.items():
-            if agent_name != other_agent_name:
-                other_agent_position = other_agent.get_position()
-                direction = np.array(other_agent_position) - np.array(agent_position)
-
-                if np.linalg.norm(direction) <= self.__agent_vision_radius:
-                    nearby_agent_positions.append(other_agent_position)
-                else:
-                    nearby_agent_positions.append([-1, -1])
-
         return {
             "agent_position": agent_position,
             "carrying_food": agent.get_carried_food() is not None,
             "dropped_food_positions": tuple(dropped_food_positions),
             "dropped_food_count": len(dropped_food_positions),
-            "nearby_agent_positions": tuple(nearby_agent_positions),
+            "agent_detected": len(self.__get_nearby_agents(agent, agent_name)) > 0,
         }
 
     def __get_observations(self):
@@ -285,9 +280,12 @@ class ScavengingAntEnv(ParallelEnv):
 
     def __get_info(self):
         info = {}
+
         for agent_name in self.agents:
+            agent = self.__agents[agent_name]
             info[agent_name] = {
-                "agent_color": self.__agents[agent_name].get_color()
+                "agent_color": agent.get_color(),
+                "nearby_agents": self.__get_nearby_agents(agent, agent_name),
             }
 
         return info
