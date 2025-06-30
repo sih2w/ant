@@ -1,7 +1,10 @@
+import ast
+import os
 from typing import Callable
 import numpy as np
-import pickle
+import json
 import pygame
+import matplotlib.pyplot as plt
 import scavenging_ant.envs.scavenging_ant as scavenging_ant
 from collections import defaultdict
 from copy import deepcopy
@@ -57,13 +60,14 @@ def flatten_observations(observations):
 
 if __name__ == "__main__":
     # Learning parameters
-    episodes = 3_000
+    episodes = 10_000
     seed = 0
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
     epsilon = 1
     epsilon_decay_rate = epsilon / (episodes / 2)
-    max_steps_per_episode = 1000
+    max_steps_per_episode = 2000
+    agents_exchange_info = False
 
     # Environment parameters
     grid_width = 15
@@ -75,28 +79,42 @@ if __name__ == "__main__":
     square_pixel_width = 80
     agent_vision_radius = 1
 
-    loaded_from_file = False
     file_name = (
-        "q_learning_models/"
-        f"learning_rate_{learning_rate_alpha}_"
-        f"discount_factor_gamma_{discount_factor_gamma}_"
-        f"episodes_{episodes}_"
-        f"seed_{seed}_"
-        f"width_{grid_width}_"
-        f"height_{grid_height}_"
-        f"agent_{agent_count}_"
-        f"food_{food_count}_"
-        f"nest_{nest_count}_"
-        f"obstacle_{obstacle_count}"
-        f"agent_vision_radius_{agent_vision_radius}"
+        f"{learning_rate_alpha}_"
+        f"{discount_factor_gamma}_"
+        f"{episodes}_"
+        f"{seed}_"
+        f"{grid_width}_"
+        f"{grid_height}_"
+        f"{agent_count}_"
+        f"{food_count}_"
+        f"{nest_count}_"
+        f"{obstacle_count}_"
+        f"{agent_vision_radius}_"
+        f"{agents_exchange_info}"
     )
 
+    os.makedirs(name="./q_learning_models", exist_ok=True)
+    os.makedirs(name="./q_learning_graphs", exist_ok=True)
+    os.makedirs(name="./q_learning_exchanges", exist_ok=True)
+
     try:
-        with open(file_name, "rb") as file:
-            # Attempt to load a file that uses the given parameters
-            q = pickle.load(file)
-            loaded_from_file = True
-            print("Loaded from file")
+        # The Q table is a dictionary of dictionaries. {[string]: {[string]: {float}}}
+        with open(f"./q_learning_models/{file_name}.json", "r") as file:
+            q = {}
+            loaded_q = json.load(file)
+
+            for agent_name, agent_q in loaded_q.items():
+                q[agent_name] = {}
+                for observation, action_values in agent_q.items():
+                    q[agent_name][ast.literal_eval(observation)] = action_values
+
+        # The episode steps are saved as a list. This allows the graph to be changed at runtime.
+        with open(f"./q_learning_graphs/{file_name}.json", "r") as file:
+            episode_steps = json.load(file)
+
+        with open(f"./q_learning_exchanges/{file_name}.json", "r") as file:
+            episode_exchanges = json.load(file)
 
     except FileNotFoundError:
         env = create_env(
@@ -113,8 +131,10 @@ if __name__ == "__main__":
         )
 
         q = {agent_name: defaultdict(lambda: np.zeros(env.action_space(agent_name).n)) for agent_name in env.agents}
-        rng = np.random.default_rng()
+        episode_steps = []
+        episode_exchanges = []
 
+        rng = np.random.default_rng()
         episode = 0
         pbar = tqdm(total=episodes)
 
@@ -123,6 +143,9 @@ if __name__ == "__main__":
             observations, _ = env.reset(seed=seed)
             observations = flatten_observations(observations)
             terminated, truncated, use_episode = False, False, True
+
+            episode_step_count = 0
+            episode_exchange_count = 0
 
             while not terminated and not truncated:
                 actions = {}
@@ -135,7 +158,9 @@ if __name__ == "__main__":
                 new_observations, rewards, terminations, truncations, infos = env.step(actions)
                 new_observations = flatten_observations(new_observations)
 
-                use_episode = env.get_step_count() <= max_steps_per_episode
+                episode_step_count = episode_step_count + 1
+                use_episode = episode_step_count <= max_steps_per_episode
+
                 if not use_episode:
                     # If the number of steps in this episode exceeds a maximum number of steps,
                     # terminate this episode and discard the changes made to the Q table. This
@@ -156,36 +181,53 @@ if __name__ == "__main__":
                 for agent_name, new_observation in new_observations.items():
                     episode_q[agent_name][observations[agent_name]][actions[agent_name]] = episode_q[agent_name][observations[agent_name]][actions[agent_name]] + learning_rate_alpha * (rewards[agent_name] + discount_factor_gamma * np.max(q[agent_name][new_observation]) - episode_q[agent_name][observations[agent_name]][actions[agent_name]])
 
-                # For each agent who is within proximity of another agent, fill in missing Q-values.
-                for agent_name, info in infos.items():
-                    for other_agent_name in info["nearby_agents"]:
-                        for observation, actions in episode_q[other_agent_name].items():
-                            if episode_q[agent_name].get(observation) is None:
-                                episode_q[agent_name][observation] = deepcopy(actions)
+                if agents_exchange_info:
+                    # For each agent who is within proximity of another agent, fill in missing Q-values.
+                    for agent_name, info in infos.items():
+                        for other_agent_name in info["nearby_agents"]:
+                            episode_exchange_count = episode_exchange_count + 1
+                            for observation, actions in episode_q[other_agent_name].items():
+                                if episode_q[agent_name].get(observation) is None:
+                                    episode_q[agent_name][observation] = deepcopy(actions)
 
                 observations = new_observations
 
             if use_episode:
                 q = episode_q  # Overwrite the current Q table with the updates made during the episode.
-                epsilon = max(epsilon - epsilon_decay_rate, 0.10)
+                epsilon = max(epsilon - epsilon_decay_rate, 0.01)
                 pbar.update(1)
                 episode = episode + 1
+                episode_steps.append(episode_step_count)
+                episode_exchanges.append(episode_exchange_count)
 
         pbar.close()
         env.close()
 
-    if not loaded_from_file:
-        # If the Q-learning model was not loaded from a file, save this Q-learning model to a file.
-        with open(file_name, "wb") as file:
-            # Convert the default dict object to a normal dictionary. Pickle cannot save instances.
+        with open(f"./q_learning_models/{file_name}.json", "w") as file:
             saved_q = {}
             for agent_name, agent_q in q.items():
                 saved_q[agent_name] = {}
                 for observation, action_values in agent_q.items():
-                    saved_q[agent_name][observation] = action_values
+                    saved_q[agent_name][str(observation)] = action_values.tolist()
+            json.dump(saved_q, file)
 
-            pickle.dump(saved_q, file)
-            print("Saved to file")
+        with open(f"./q_learning_graphs/{file_name}.json", "w") as file:
+            json.dump(episode_steps, file)
+
+        with open(f"./q_learning_exchanges/{file_name}.json", "w") as file:
+            json.dump(episode_exchanges, file)
+
+    plt.plot([x for x in range(episodes)], episode_exchanges)
+    plt.title("Agent Information Exchanges")
+    plt.xlabel("Episode")
+    plt.ylabel("Exchange Count")
+    plt.show()
+
+    plt.plot([x for x in range(episodes)], episode_steps)
+    plt.title("Exchange Enabled" if agents_exchange_info else "Exchange Disabled")
+    plt.xlabel("Episode")
+    plt.ylabel("Steps")
+    plt.show()
 
     # Settings for visualizing agent policy
     selected_agent_index = 0
@@ -272,7 +314,7 @@ if __name__ == "__main__":
         nest_count=nest_count,
         post_render_callback=post_render_callback,
         square_pixel_width=square_pixel_width,
-        render_fps=1,
+        render_fps=5,
         agent_vision_radius=agent_vision_radius,
     )
 
