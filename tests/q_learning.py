@@ -61,13 +61,13 @@ def flatten_observations(observations):
 if __name__ == "__main__":
     # Learning parameters
     episodes = 10_000
-    seed = 0
+    seed = 1
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
     epsilon = 1
     epsilon_decay_rate = epsilon / (episodes / 2)
     max_steps_per_episode = 2000
-    agents_exchange_info = False
+    agents_exchange_info = True
 
     # Environment parameters
     grid_width = 15
