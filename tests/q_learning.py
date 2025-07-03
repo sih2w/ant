@@ -1,6 +1,6 @@
 import ast
+import math
 import os
-from typing import Callable
 import numpy as np
 import json
 import pygame
@@ -8,36 +8,9 @@ import matplotlib.pyplot as plt
 import scavenging_ant.envs.scavenging_ant as scavenging_ant
 from collections import defaultdict
 from copy import deepcopy
+import threading
+import time
 from tqdm import tqdm
-
-def create_env(
-        render_mode: str = None,
-        seed: int = 0,
-        grid_width: int = 10,
-        grid_height: int = 5,
-        agent_count: int = 1,
-        food_count: int = 1,
-        obstacle_count: int = 1,
-        render_fps: int = 5,
-        post_render_callback: Callable = None,
-        square_pixel_width: int = 60,
-        nest_count: int = 1,
-        agent_vision_radius: int = 5
-):
-    return scavenging_ant.ScavengingAntEnv(
-        render_mode=render_mode,
-        render_fps=render_fps,
-        grid_height=grid_height,
-        grid_width=grid_width,
-        seed=seed,
-        food_count=food_count,
-        nest_count=nest_count,
-        agent_count=agent_count,
-        obstacle_count=obstacle_count,
-        square_pixel_width=square_pixel_width,
-        post_render_callback=post_render_callback,
-        agent_vision_radius=agent_vision_radius,
-    )
 
 def flatten_observation(observation):
     positions = [*observation["agent_position"]]
@@ -58,16 +31,36 @@ def flatten_observations(observations):
 
     return observations
 
+def get_triangle_points(radius: float, position: (int, int), radians: float):
+    points = [[-1, -1], [0, 1], [1, -1]]
+    for index, point in enumerate(points):
+        points[index] = [
+            position[0] + radius * (point[0] * math.cos(radians) - point[1] * math.sin(radians)),
+            position[1] + radius * (point[0] * math.sin(radians) + point[1] * math.cos(radians))
+        ]
+    return points
+
+def get_points_from_action(action: int, radius: float, position: (int, int)):
+    if action == 0:
+        return get_triangle_points(radius, position, math.radians(0))
+    elif action == 1:
+        return get_triangle_points(radius, position, math.radians(180))
+    elif action == 2:
+        return get_triangle_points(radius, position, math.radians(90))
+    elif action == 3:
+        return get_triangle_points(radius, position, math.radians(-90))
+    return [[0, 0], [0, 1], [1, 0], [1, 1]]
+
 if __name__ == "__main__":
     # Learning parameters
     episodes = 10_000
-    seed = 1
+    seed = 0
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
     epsilon = 1
     epsilon_decay_rate = epsilon / (episodes / 2)
     max_steps_per_episode = 2000
-    agents_exchange_info = True
+    agents_exchange_info = False
 
     # Environment parameters
     grid_width = 15
@@ -117,7 +110,7 @@ if __name__ == "__main__":
             episode_exchanges = json.load(file)
 
     except FileNotFoundError:
-        env = create_env(
+        env = scavenging_ant.ScavengingAntEnv(
             render_mode=None,
             seed=seed,
             grid_width=grid_width,
@@ -185,9 +178,9 @@ if __name__ == "__main__":
                     # For each agent who is within proximity of another agent, fill in missing Q-values.
                     for agent_name, info in infos.items():
                         for other_agent_name in info["nearby_agents"]:
-                            episode_exchange_count = episode_exchange_count + 1
                             for observation, actions in episode_q[other_agent_name].items():
                                 if episode_q[agent_name].get(observation) is None:
+                                    episode_exchange_count = episode_exchange_count + 1
                                     episode_q[agent_name][observation] = deepcopy(actions)
 
                 observations = new_observations
@@ -229,81 +222,8 @@ if __name__ == "__main__":
     plt.ylabel("Steps")
     plt.show()
 
-    # Settings for visualizing agent policy
-    selected_agent_index = 0
-    switching_agent = False
-    selected_agent_observation = None
-    selected_agent_color = None
-    padding = 0.40
-
-    def post_render_callback(canvas, window):
-        global selected_agent_index
-        global switching_agent
-
-        if selected_agent_observation is None:
-            return
-
-        for row in range(grid_height):
-            for column in range(grid_width):
-                # Copy the current observation of the agent and then update the
-                # agent's position to be the grid position of the current cell. This
-                # will return the policy for a specific position.
-                grid_observation = deepcopy(selected_agent_observation)
-                grid_observation["agent_position"] = (column, row)
-                grid_observation = flatten_observation(grid_observation)
-
-                actions = q[f"agent_{selected_agent_index}"].get(grid_observation)
-                if actions is not None:
-                    top_point = (
-                        (column * square_pixel_width) + (square_pixel_width / 2),
-                        (row * square_pixel_width) + (square_pixel_width * padding)
-                    )
-                    left_point = (
-                        (column * square_pixel_width) + (square_pixel_width * padding),
-                        (row * square_pixel_width) + (square_pixel_width / 2)
-                    )
-                    right_point = (
-                        (column * square_pixel_width) + square_pixel_width - (square_pixel_width * padding),
-                        (row * square_pixel_width) + (square_pixel_width / 2)
-                    )
-                    bottom_point = (
-                        (column * square_pixel_width) + (square_pixel_width / 2),
-                        (row * square_pixel_width) + square_pixel_width - (square_pixel_width * padding)
-                    )
-
-                    action = np.argmax(actions)
-                    points = []
-
-                    if action == 0:
-                        points = [left_point, bottom_point, right_point]
-                    elif action == 1:
-                        points = [left_point, top_point, right_point]
-                    elif action == 2:
-                        points = [left_point, top_point, bottom_point]
-                    elif action == 3:
-                        points = [right_point, top_point, bottom_point]
-
-                    if len(points) > 0:
-                        # Draw a triangle to represent the favored move direction.
-                        pygame.draw.polygon(
-                            surface=canvas,
-                            color=selected_agent_color,
-                            points=points
-                        )
-
-        keys = pygame.key.get_pressed()
-
-        if keys[pygame.K_SPACE]:
-            if not switching_agent:
-                switching_agent = True
-                selected_agent_index += 1
-                if selected_agent_index >= agent_count:
-                    selected_agent_index = 0
-        else:
-            switching_agent = False
-
     # Create a new environment with human rendering.
-    env = create_env(
+    env = scavenging_ant.ScavengingAntEnv(
         render_mode="human",
         seed=seed,
         grid_width=grid_width,
@@ -312,14 +232,26 @@ if __name__ == "__main__":
         food_count=food_count,
         obstacle_count=obstacle_count,
         nest_count=nest_count,
-        post_render_callback=post_render_callback,
         square_pixel_width=square_pixel_width,
-        render_fps=5,
+        render_fps=60,
         agent_vision_radius=agent_vision_radius,
     )
 
-    # Visualize trained model.
-    for episode in range(episodes):
+    pygame.init()
+    pygame.display.set_caption("Scavenging Ant")
+
+    window_size = env.get_window_size()
+    window = pygame.display.set_mode(window_size)
+    clock = pygame.time.Clock()
+
+    selected_agent_index = 0
+    switching_agent = False
+    running = True
+    stepping_enabled = True
+    stepping = False
+
+    while running:
+        # Visualize trained model.
         observations, info = env.reset(seed=seed)
         observations = flatten_observations(observations)
 
@@ -327,20 +259,84 @@ if __name__ == "__main__":
         truncated = False
 
         while not terminated and not truncated:
-            actions = {agent_name: np.argmax(q[agent_name][observations[agent_name]]) for agent_name in env.agents}
-            observations, rewards, terminations, truncations, info = env.step(actions)
-            selected_agent_color = info[f"agent_{selected_agent_index}"]["agent_color"]
-            selected_agent_observation = observations[f"agent_{selected_agent_index}"]
+            if stepping_enabled and not stepping:
+                stepping = True
 
-            observations = flatten_observations(observations)
-            for _, termination in terminations.items():
-                terminated = termination
-                if terminated:
+                actions = {agent_name: np.argmax(q[agent_name][observations[agent_name]]) for agent_name in env.agents}
+                observations, rewards, terminations, truncations, info = env.step(actions)
+                selected_agent_color = info[f"agent_{selected_agent_index}"]["agent_color"]
+                selected_agent_observation = observations[f"agent_{selected_agent_index}"]
+
+                canvas = pygame.Surface(window_size)
+                env.draw(canvas)
+
+                for row in range(grid_height):
+                    for column in range(grid_width):
+                        grid_observation = deepcopy(selected_agent_observation)
+                        grid_observation["agent_position"] = (column, row)
+                        grid_observation = flatten_observation(grid_observation)
+
+                        actions = q[f"agent_{selected_agent_index}"].get(grid_observation)
+                        if actions is not None:
+                            action = int(np.argmax(actions))
+                            position = (
+                                column * square_pixel_width + square_pixel_width / 2,
+                                row * square_pixel_width + square_pixel_width / 2
+                            )
+
+                            radius = square_pixel_width / 10
+                            foreground_points = get_points_from_action(action, radius, position)
+                            background_points = get_points_from_action(action, radius + 5, position)
+
+                            pygame.draw.polygon(
+                                surface=canvas,
+                                color=(46, 48, 51),
+                                points=background_points,
+                            )
+
+                            pygame.draw.polygon(
+                                surface=canvas,
+                                color=selected_agent_color,
+                                points=foreground_points,
+                            )
+
+                observations = flatten_observations(observations)
+                for _, termination in terminations.items():
+                    terminated = termination
+                    if terminated:
+                        break
+                else:
+                    for _, truncation in truncations.items():
+                        truncated = truncation
+                        if truncated:
+                            break
+
+                window.blit(canvas, canvas.get_rect())
+                pygame.event.pump()
+                pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    terminated = True
+                    running = False
                     break
             else:
-                for _, truncation in truncations.items():
-                    truncated = truncation
-                    if truncated:
-                        break
+                keys = pygame.key.get_pressed()
+                if keys[pygame.K_COMMA]:
+                    if not switching_agent:
+                        switching_agent = True
+                        selected_agent_index += 1
+                        if selected_agent_index >= agent_count:
+                            selected_agent_index = 0
+                else:
+                    switching_agent = False
+                    if keys[pygame.K_SPACE]:
+                        stepping_enabled = True
+                    else:
+                        stepping_enabled = False
+                        stepping = False
 
-    env.close()
+            clock.tick(env.render_fps)
+
+    pygame.display.quit()
+    pygame.quit()

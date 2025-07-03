@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Callable
 import functools
 import math
 import random
@@ -88,12 +87,16 @@ class Agent(Positionable):
             self,
             carry_capacity: float = 0.10,
             position: [int, int] = None,
+            color: [int, int, int] = None,
     ):
         super().__init__(position)
         self.__carry_capacity = carry_capacity
         self.__carried_food = None
-        self.__color = colorsys.hsv_to_rgb(random.random(), 1, 1)
-        self.__color = (int(self.__color[0] * 255), int(self.__color[1] * 255), int(self.__color[2] * 255))
+        self.__color = color
+
+        if self.__color is None:
+            self.__color = colorsys.hsv_to_rgb(random.random(), 1, 1)
+            self.__color = (int(self.__color[0] * 255), int(self.__color[1] * 255), int(self.__color[2] * 255))
 
     def get_color(self):
         return self.__color
@@ -137,8 +140,7 @@ class ScavengingAntEnv(ParallelEnv):
             agent_vision_radius: int = 1,
             obstacle_count: int = 1,
             seed: int = np.random.randint(1, 1000),
-            prerender_callback: Callable = None,
-            post_render_callback: Callable = None,
+            agent_colors: [[int, int, int]] = None
     ):
         self.__grid_width = grid_width
         self.__grid_height = grid_height
@@ -149,23 +151,23 @@ class ScavengingAntEnv(ParallelEnv):
         self.__food = []
         self.__obstacles = []
         self.__nests = []
-        self.__window = None
-        self.__clock = None
+
         self.__random = np.random.default_rng(seed)
         self.__step_count = 0
         self.__agent_vision_radius = agent_vision_radius
-        self.__prerender_callback = prerender_callback
-        self.__post_render_callback = post_render_callback
 
         self.possible_agents = ["agent_" + str(index) for index in range(agent_count)]
         self.agents = self.possible_agents[:]
         self.render_mode = render_mode
         self.render_fps = render_fps
 
+        agent_colors = agent_colors or [(255, 255, 0), (0, 255, 0), (255, 0, 0), (0, 0, 255)]
+
         self.__agents = {
             name: Agent(
                 carry_capacity=np.random.uniform(low=0, high=0.50),
-                position=[-1, -1]
+                position=[-1, -1],
+                color=agent_colors.pop() if len(agent_colors) > 0 else None
             ) for name in self.possible_agents
         }
 
@@ -407,9 +409,6 @@ class ScavengingAntEnv(ParallelEnv):
             # Reward each agent for depositing all food.
             rewards = {agent_name: 100 for agent_name in self.agents}
 
-        if self.render_mode == "human":
-            self.render()
-
         return (
             self.__get_observations(),
             rewards,
@@ -452,7 +451,7 @@ class ScavengingAntEnv(ParallelEnv):
 
                 pygame.draw.circle(
                     surface=canvas,
-                    color=(229, 170, 22),
+                    color=(255, 255, 255),
                     center=position,
                     radius=self.__square_pixel_width / 10,
                 )
@@ -485,47 +484,19 @@ class ScavengingAntEnv(ParallelEnv):
                     ),
                 )
 
-    def render(self):
-        window_size = [
+    def get_window_size(self):
+        return (
             self.__grid_width * self.__square_pixel_width,
             self.__grid_height * self.__square_pixel_width
-        ]
+        )
 
+    def draw(self, canvas):
         if self.render_mode == "human":
-            if self.__window is None:
-                pygame.init()
-                pygame.display.set_caption("Scavenging Ant")
-                self.__window = pygame.display.set_mode(window_size)
-
-            if self.__clock is None:
-                self.__clock = pygame.time.Clock()
-
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.close()
-                    exit()
-
-        canvas = pygame.Surface(window_size)
-
-        if self.__window is not None and self.__prerender_callback is not None:
-            self.__prerender_callback(canvas, self.__window)
-
-        self.__draw_grass(canvas)
-        self.__draw_obstacles(canvas)
-        self.__draw_nests(canvas)
-        self.__draw_agents(canvas)
-        self.__draw_food(canvas)
-
-        if self.__window is not None and self.__post_render_callback is not None:
-            self.__post_render_callback(canvas, self.__window)
-
-        if self.render_mode == "human":
-            self.__window.blit(canvas, canvas.get_rect())
-            pygame.event.pump()
-            pygame.display.flip()
-            self.__clock.tick(self.render_fps)
+            self.__draw_grass(canvas)
+            self.__draw_obstacles(canvas)
+            self.__draw_nests(canvas)
+            self.__draw_agents(canvas)
+            self.__draw_food(canvas)
 
     def close(self):
-        if self.__window is not None:
-            pygame.display.quit()
-            pygame.quit()
+        pass
