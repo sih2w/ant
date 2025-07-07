@@ -8,8 +8,6 @@ import matplotlib.pyplot as plt
 import scavenging_ant.envs.scavenging_ant as scavenging_ant
 from collections import defaultdict
 from copy import deepcopy
-import threading
-import time
 from tqdm import tqdm
 
 def flatten_observation(observation):
@@ -19,16 +17,15 @@ def flatten_observation(observation):
         positions.append(position[1])
 
     return (
-        observation["carrying_food"],
-        observation["dropped_food_count"],
-        observation["agent_detected"],
+        int(observation["carrying_food"]),
+        int(observation["dropped_food_count"]),
+        int(observation["agent_detected"]),
         *positions
     )
 
 def flatten_observations(observations):
     for agent_name, observation in observations.items():
         observations[agent_name] = flatten_observation(observation)
-
     return observations
 
 def get_triangle_points(radius: float, position: (int, int), radians: float):
@@ -53,7 +50,7 @@ def get_points_from_action(action: int, radius: float, position: (int, int)):
 
 if __name__ == "__main__":
     # Learning parameters
-    episodes = 10_000
+    episodes = 5000
     seed = 0
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
@@ -71,6 +68,7 @@ if __name__ == "__main__":
     nest_count = 1
     square_pixel_width = 80
     agent_vision_radius = 1
+    exchange_delay = 1
 
     file_name = (
         f"{learning_rate_alpha}_"
@@ -84,7 +82,8 @@ if __name__ == "__main__":
         f"{nest_count}_"
         f"{obstacle_count}_"
         f"{agent_vision_radius}_"
-        f"{agents_exchange_info}"
+        f"{agents_exchange_info}_"
+        f"{exchange_delay}"
     )
 
     os.makedirs(name="./q_learning_models", exist_ok=True)
@@ -92,7 +91,6 @@ if __name__ == "__main__":
     os.makedirs(name="./q_learning_exchanges", exist_ok=True)
 
     try:
-        # The Q table is a dictionary of dictionaries. {[string]: {[string]: {float}}}
         with open(f"./q_learning_models/{file_name}.json", "r") as file:
             q = {}
             loaded_q = json.load(file)
@@ -102,7 +100,6 @@ if __name__ == "__main__":
                 for observation, action_values in agent_q.items():
                     q[agent_name][ast.literal_eval(observation)] = action_values
 
-        # The episode steps are saved as a list. This allows the graph to be changed at runtime.
         with open(f"./q_learning_graphs/{file_name}.json", "r") as file:
             episode_steps = json.load(file)
 
@@ -138,7 +135,8 @@ if __name__ == "__main__":
             terminated, truncated, use_episode = False, False, True
 
             episode_step_count = 0
-            episode_exchange_count = 0
+            proximity_count = 0
+            exchange_count = 0
 
             while not terminated and not truncated:
                 actions = {}
@@ -174,14 +172,24 @@ if __name__ == "__main__":
                 for agent_name, new_observation in new_observations.items():
                     episode_q[agent_name][observations[agent_name]][actions[agent_name]] = episode_q[agent_name][observations[agent_name]][actions[agent_name]] + learning_rate_alpha * (rewards[agent_name] + discount_factor_gamma * np.max(q[agent_name][new_observation]) - episode_q[agent_name][observations[agent_name]][actions[agent_name]])
 
-                if agents_exchange_info:
-                    # For each agent who is within proximity of another agent, fill in missing Q-values.
-                    for agent_name, info in infos.items():
-                        for other_agent_name in info["nearby_agents"]:
+                in_proximity = False
+                information_exchanged = False
+
+                for agent_name, info in infos.items():
+                    for other_agent_name in info["nearby_agents"]:
+                        in_proximity = True
+                        if agents_exchange_info and exchange_count % exchange_delay == 0:
                             for observation, actions in episode_q[other_agent_name].items():
-                                if episode_q[agent_name].get(observation) is None:
-                                    episode_exchange_count = episode_exchange_count + 1
+                                if observation not in episode_q[agent_name]:
+                                    # Fill in missing Q-values if information sharing is available.
+                                    information_exchanged = True
                                     episode_q[agent_name][observation] = deepcopy(actions)
+
+                if information_exchanged:
+                    exchange_count = exchange_count + 1
+
+                if in_proximity:
+                    proximity_count = proximity_count + 1
 
                 observations = new_observations
 
@@ -190,8 +198,12 @@ if __name__ == "__main__":
                 epsilon = max(epsilon - epsilon_decay_rate, 0.01)
                 pbar.update(1)
                 episode = episode + 1
+
                 episode_steps.append(episode_step_count)
-                episode_exchanges.append(episode_exchange_count)
+                episode_exchanges.append({
+                    "exchange_count": exchange_count,
+                    "proximity_count": proximity_count,
+                })
 
         pbar.close()
         env.close()
@@ -210,16 +222,28 @@ if __name__ == "__main__":
         with open(f"./q_learning_exchanges/{file_name}.json", "w") as file:
             json.dump(episode_exchanges, file)
 
-    plt.plot([x for x in range(episodes)], episode_exchanges)
-    plt.title("Agent Information Exchanges")
-    plt.xlabel("Episode")
-    plt.ylabel("Exchange Count")
+    episodes = [x for x in range(episodes)]
+    exchange_count = []
+    proximity_count = []
+
+    for episode_exchange in episode_exchanges:
+        exchange_count.append(episode_exchange["exchange_count"])
+        proximity_count.append(episode_exchange["proximity_count"])
+
+    if agents_exchange_info:
+        plt.plot(episodes, exchange_count, color="blue")
+        plt.title("Exchange Count")
+        plt.xlabel("Episodes")
+        plt.show()
+
+    plt.plot(episodes, proximity_count, color="orange")
+    plt.title("Proximity Count")
+    plt.xlabel("Episodes")
     plt.show()
 
-    plt.plot([x for x in range(episodes)], episode_steps)
-    plt.title("Exchange Enabled" if agents_exchange_info else "Exchange Disabled")
-    plt.xlabel("Episode")
-    plt.ylabel("Steps")
+    plt.plot(episodes, episode_steps, color="green")
+    plt.title("Steps per Episode")
+    plt.xlabel("Episodes")
     plt.show()
 
     # Create a new environment with human rendering.
