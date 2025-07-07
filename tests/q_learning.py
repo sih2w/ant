@@ -57,7 +57,7 @@ if __name__ == "__main__":
     discount_factor_gamma = 0.95
     epsilon = 1
     epsilon_decay_rate = epsilon / (episodes / 2)
-    max_steps_per_episode = 2000
+    max_steps_per_episode = 3000
     agents_exchange_info = True
 
     # Environment parameters
@@ -88,8 +88,7 @@ if __name__ == "__main__":
     )
 
     os.makedirs(name="./q_learning_models", exist_ok=True)
-    os.makedirs(name="./q_learning_graphs", exist_ok=True)
-    os.makedirs(name="./q_learning_exchanges", exist_ok=True)
+    os.makedirs(name="./q_learning_episodes", exist_ok=True)
 
     try:
         with open(f"./q_learning_models/{file_name}.json", "r") as file:
@@ -101,11 +100,8 @@ if __name__ == "__main__":
                 for observation, action_values in agent_q.items():
                     q[agent_name][ast.literal_eval(observation)] = action_values
 
-        with open(f"./q_learning_graphs/{file_name}.json", "r") as file:
-            episode_steps = json.load(file)
-
-        with open(f"./q_learning_exchanges/{file_name}.json", "r") as file:
-            episode_exchanges = json.load(file)
+        with open(f"./q_learning_episodes/{file_name}.json", "r") as file:
+            episode_data = json.load(file)
 
     except FileNotFoundError:
         env = scavenging_ant.ScavengingAntEnv(
@@ -122,8 +118,7 @@ if __name__ == "__main__":
         )
 
         q = {agent_name: defaultdict(lambda: np.zeros(env.action_space(agent_name).n)) for agent_name in env.agents}
-        episode_steps = []
-        episode_exchanges = []
+        episode_data = []
 
         rng = np.random.default_rng()
         episode = 0
@@ -135,7 +130,7 @@ if __name__ == "__main__":
             observations = flatten_observations(observations)
             terminated, truncated, use_episode = False, False, True
 
-            episode_step_count = 0
+            step_count = 0
             proximity_count = 0
             exchange_count = 0
 
@@ -150,8 +145,8 @@ if __name__ == "__main__":
                 new_observations, rewards, terminations, truncations, infos = env.step(actions)
                 new_observations = flatten_observations(new_observations)
 
-                episode_step_count = episode_step_count + 1
-                use_episode = episode_step_count <= max_steps_per_episode
+                step_count = step_count + 1
+                use_episode = step_count <= max_steps_per_episode
 
                 if not use_episode:
                     # If the number of steps in this episode exceeds a maximum number of steps,
@@ -200,8 +195,8 @@ if __name__ == "__main__":
                 pbar.update(1)
                 episode = episode + 1
 
-                episode_steps.append(episode_step_count)
-                episode_exchanges.append({
+                episode_data.append({
+                    "step_count": step_count,
                     "exchange_count": exchange_count,
                     "proximity_count": proximity_count,
                 })
@@ -217,17 +212,16 @@ if __name__ == "__main__":
                     saved_q[agent_name][str(observation)] = action_values.tolist()
             json.dump(saved_q, file)
 
-        with open(f"./q_learning_graphs/{file_name}.json", "w") as file:
-            json.dump(episode_steps, file)
-
-        with open(f"./q_learning_exchanges/{file_name}.json", "w") as file:
-            json.dump(episode_exchanges, file)
+        with open(f"./q_learning_episodes/{file_name}.json", "w") as file:
+            json.dump(episode_data, file)
 
     episodes = [x for x in range(episodes)]
+    episode_steps = []
     exchange_count = []
     proximity_count = []
 
-    for episode_exchange in episode_exchanges:
+    for episode_exchange in episode_data:
+        episode_steps.append(episode_exchange["step_count"])
         exchange_count.append(episode_exchange["exchange_count"])
         proximity_count.append(episode_exchange["proximity_count"])
 
