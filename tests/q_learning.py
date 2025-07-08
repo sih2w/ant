@@ -51,13 +51,13 @@ def get_points_from_action(action: int, radius: float, position: (int, int)):
 
 if __name__ == "__main__":
     # Learning parameters
-    episodes = 5000
+    episodes = 5_000
     seed = 0 # random.randint(1, 10000)
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.95
     epsilon = 1
     epsilon_decay_rate = epsilon / (episodes / 2)
-    max_steps_per_episode = 3000
+    max_steps_per_episode = 5_000
     agents_exchange_info = True
 
     # Environment parameters
