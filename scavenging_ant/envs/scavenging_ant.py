@@ -5,6 +5,7 @@ import random
 import colorsys
 import numpy as np
 import pygame
+from scavenging_ant.envs.layered_sprite import LayeredSprite
 from gymnasium.spaces import Discrete, Box, Dict, Tuple
 from pettingzoo import ParallelEnv
 
@@ -87,7 +88,7 @@ class Agent(Positionable):
             self,
             carry_capacity: float = 0.10,
             position: [int, int] = None,
-            color: [int, int, int] = None,
+            color: [int, int, int, int] = None,
     ):
         super().__init__(position)
         self.__carry_capacity = carry_capacity
@@ -96,7 +97,11 @@ class Agent(Positionable):
 
         if self.__color is None:
             self.__color = colorsys.hsv_to_rgb(random.random(), 1, 1)
-            self.__color = (int(self.__color[0] * 255), int(self.__color[1] * 255), int(self.__color[2] * 255))
+            self.__color = (
+                int(self.__color[0] * 255),
+                int(self.__color[1] * 255),
+                int(self.__color[2] * 255),
+            )
 
     def get_color(self):
         return self.__color
@@ -435,26 +440,40 @@ class ScavengingAntEnv(ParallelEnv):
 
     def __draw_agents(self, canvas):
         for _, agent in self.__agents.items():
-            pygame.draw.circle(
-                surface=canvas,
-                color=agent.get_color(),
-                center=(np.array(agent.get_position()) + 0.50) * self.__square_pixel_width,
-                radius=self.__square_pixel_width / 4,
+            radius = self.__square_pixel_width
+            position = agent.get_position()
+            position = (
+                position[0] * self.__square_pixel_width,
+                position[1] * self.__square_pixel_width
+            )
+
+            LayeredSprite(
+                foreground_image="../images/ant-foreground.png",
+                background_image="../images/ant-background.png",
+                dimensions=(radius, radius),
+                rotation=0,
+                color=agent.get_color()
+            ).draw(
+                canvas=canvas,
+                position=position,
             )
 
     def __draw_food(self, canvas):
         for food in self.__food:
             if not food.is_hidden():
-                position = (np.array(food.get_position()) + 0.50) * self.__square_pixel_width
+                radius = self.__square_pixel_width / 2
+                position = food.get_position()
+                position = (
+                    position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - radius / 2,
+                    position[1] * self.__square_pixel_width
+                )
+
                 if not food.is_carried():
                     position += food.get_pixel_offset()
 
-                pygame.draw.circle(
-                    surface=canvas,
-                    color=(255, 255, 255),
-                    center=position,
-                    radius=self.__square_pixel_width / 10,
-                )
+                image = pygame.image.load("../images/food.png")
+                image = pygame.transform.scale(image, (radius, radius))
+                canvas.blit(image, position)
 
     def __draw_obstacles(self, canvas):
         for obstacle in self.__obstacles:
