@@ -242,7 +242,6 @@ if __name__ == "__main__":
 
     if len(total_rewards) > 0:
         episode_agent_rewards = {}
-
         for _, agent_rewards in enumerate(total_rewards):
             for agent_name, episode_reward in agent_rewards.items():
                 if episode_agent_rewards.get(agent_name) is None:

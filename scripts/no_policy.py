@@ -1,8 +1,8 @@
-from scripts import scavenging_ant as scavenging_ant
+from scripts.scavenging_ant import ScavengingAntEnv
 import pygame
 
 if __name__ == "__main__":
-    env = scavenging_ant.ScavengingAntEnv(
+    env = ScavengingAntEnv(
         render_mode="human",
         render_fps=1,
         grid_height=3,

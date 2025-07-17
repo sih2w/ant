@@ -9,12 +9,7 @@ from scripts.layered_sprite import LayeredSprite
 from gymnasium.spaces import Discrete, Box, Dict, Tuple
 from pettingzoo import ParallelEnv
 
-AGENT_ACTIONS = [
-    [0, 1], # Move down
-    [0, -1], # Move up
-    [-1, 0], # Move left
-    [1, 0], # Move right
-]
+AGENT_ACTIONS = ((0, 1), (0, -1), (-1, 0), (1, 0))
 
 class Positionable:
     def __init__(self, position: [int, int]):
