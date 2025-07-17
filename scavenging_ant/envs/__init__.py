@@ -1,1 +1,0 @@
-from scavenging_ant.envs.scavenging_ant import ScavengingAntEnv
