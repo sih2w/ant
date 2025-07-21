@@ -9,7 +9,7 @@ if __name__ == "__main__":
         grid_width=3,
         food_count=1,
         seed=0,
-        agent_count=5
+        agent_count=1
     )
 
     pygame.init()

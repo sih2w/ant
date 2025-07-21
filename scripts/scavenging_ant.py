@@ -1,11 +1,8 @@
 from __future__ import annotations
 import functools
 import math
-import random
-import colorsys
 import numpy as np
 import pygame
-from scripts.layered_sprite import LayeredSprite
 from gymnasium.spaces import Discrete, Box, Dict, Tuple
 from pettingzoo import ParallelEnv
 
@@ -36,21 +33,11 @@ class Food(Positionable):
             self,
             weight: float = 0.10,
             position: [int, int] = None,
-            square_pixel_width: float = 0
     ):
         super().__init__(position)
         self.__hidden = False
         self.__carried = False
         self.__weight = weight
-        self.__pixel_offset = np.random.randint(
-            low=-square_pixel_width // 2,
-            high=square_pixel_width // 2,
-            size=(2, ),
-            dtype=np.int16
-        )
-
-    def get_pixel_offset(self):
-        return self.__pixel_offset
 
     def get_weight(self):
         return self.__weight
@@ -82,23 +69,15 @@ class Agent(Positionable):
             self,
             carry_capacity: float = 0.10,
             position: [int, int] = None,
-            color: [int, int, int, int] = None,
+            name: str = None
     ):
         super().__init__(position)
         self.__carry_capacity = carry_capacity
         self.__carried_food = None
-        self.__color = color
+        self.__name = name
 
-        if self.__color is None:
-            self.__color = colorsys.hsv_to_rgb(random.random(), 1, 1)
-            self.__color = (
-                int(self.__color[0] * 255),
-                int(self.__color[1] * 255),
-                int(self.__color[2] * 255),
-            )
-
-    def get_color(self):
-        return self.__color
+    def get_name(self):
+        return self.__name
 
     def get_carry_capacity(self):
         return self.__carry_capacity
@@ -138,8 +117,7 @@ class ScavengingAntEnv(ParallelEnv):
             agent_count: int = 1,
             agent_vision_radius: int = 1,
             obstacle_count: int = 1,
-            seed: int = np.random.randint(1, 1000),
-            agent_colors: [[int, int, int]] = None
+            seed: int = np.random.randint(1, 1000)
     ):
         self.__grid_width = grid_width
         self.__grid_height = grid_height
@@ -155,18 +133,18 @@ class ScavengingAntEnv(ParallelEnv):
         self.__step_count = 0
         self.__agent_vision_radius = agent_vision_radius
 
+        agent_count = max(1, min(agent_count, 3))
+
         self.possible_agents = ["agent_" + str(index) for index in range(agent_count)]
         self.agents = self.possible_agents[:]
         self.render_mode = render_mode
         self.render_fps = render_fps
 
-        agent_colors = agent_colors or [(255, 255, 0), (0, 255, 0), (255, 0, 0), (0, 0, 255)]
-
         self.__agents = {
             name: Agent(
                 carry_capacity=np.random.uniform(low=0, high=0.50),
                 position=[-1, -1],
-                color=agent_colors.pop() if len(agent_colors) > 0 else None
+                name=name
             ) for name in self.possible_agents
         }
 
@@ -182,8 +160,7 @@ class ScavengingAntEnv(ParallelEnv):
             self.__food.append(
                 Food(
                     weight=np.random.randint(low=1, high=10),
-                    position=[-1, -1],
-                    square_pixel_width=self.__square_pixel_width
+                    position=[-1, -1]
                 )
             )
 
@@ -287,7 +264,6 @@ class ScavengingAntEnv(ParallelEnv):
         for agent_name in self.agents:
             agent = self.__agents[agent_name]
             info[agent_name] = {
-                "agent_color": agent.get_color(),
                 "nearby_agents": self.__get_nearby_agents(agent, agent_name),
             }
 
@@ -409,77 +385,53 @@ class ScavengingAntEnv(ParallelEnv):
 
     def __draw_nests(self, canvas):
         for nest in self.__nests:
+            image = pygame.image.load("../images/icons8-log-cabin-48.png")
             position = nest.get_position()
-            pygame.draw.rect(
-                surface=canvas,
-                color=(255, 255, 255),
-                rect=(
-                    position[0] * self.__square_pixel_width,
-                    position[1] * self.__square_pixel_width,
-                    self.__square_pixel_width, self.__square_pixel_width
-                ),
+            position = (
+                position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
+                position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
             )
+            canvas.blit(image, position)
 
     def __draw_agents(self, canvas):
         for _, agent in self.__agents.items():
-            radius = self.__square_pixel_width
+            image = pygame.image.load(f"../images/ants/{agent.get_name()}.png")
             position = agent.get_position()
             position = (
-                position[0] * self.__square_pixel_width,
-                position[1] * self.__square_pixel_width
+                position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
+                position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
             )
 
-            LayeredSprite(
-                foreground_image="../images/icons8-animal-200.png",
-                background_image="../images/icons8-animal-outline-200.png",
-                dimensions=(radius, radius),
-                rotation=0,
-                color=agent.get_color()
-            ).draw(
-                canvas=canvas,
-                position=position,
-            )
+            image = pygame.image.load(f"../images/ants/{agent.get_name()}.png")
+            canvas.blit(image, position)
 
     def __draw_food(self, canvas):
         for food in self.__food:
-            if not food.is_hidden():
-                radius = self.__square_pixel_width
-                if food.is_carried():
-                    radius = radius / 2
-
+            if not food.is_hidden() and not food.is_carried():
+                image = pygame.image.load("../images/icons8-whole-apple-48.png")
                 position = food.get_position()
                 position = (
-                    position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - radius / 2,
-                    position[1] * self.__square_pixel_width
+                    position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
+                    position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
                 )
-
-                if not food.is_carried():
-                    position += food.get_pixel_offset()
-
-                image = pygame.image.load("../images/icons8-apple-200.png")
-                image = pygame.transform.scale(image, (radius, radius))
                 canvas.blit(image, position)
 
     def __draw_obstacles(self, canvas):
         for obstacle in self.__obstacles:
+            image = pygame.image.load("../images/icons8-obstacle-48.png")
             position = obstacle.get_position()
-            pygame.draw.rect(
-                surface=canvas,
-                color=(46, 48, 51),
-                rect=(
-                    position[0] * self.__square_pixel_width,
-                    position[1] * self.__square_pixel_width,
-                    self.__square_pixel_width,
-                    self.__square_pixel_width
-                ),
+            position = (
+                position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
+                position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
             )
+            canvas.blit(image, position)
 
     def __draw_grass(self, canvas):
         for row in range(self.__grid_height):
             for column in range(self.__grid_width):
                 pygame.draw.rect(
                     surface=canvas,
-                    color=(0, 128, 19) if (row % 2 == 0 and column % 2 == 1) or (row % 2 == 1 and column % 2 == 0) else (5, 198, 34),
+                    color=(46, 48, 51) if (row % 2 == 0 and column % 2 == 1) or (row % 2 == 1 and column % 2 == 0) else (29, 31, 33),
                     rect=(
                         column * self.__square_pixel_width,
                         row * self.__square_pixel_width,

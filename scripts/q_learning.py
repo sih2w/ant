@@ -5,7 +5,6 @@ import json
 import pygame
 import matplotlib.pyplot as plt
 from scripts.scavenging_ant import ScavengingAntEnv
-from scripts.layered_sprite import LayeredSprite
 from collections import defaultdict
 from copy import deepcopy
 from tqdm import tqdm
@@ -56,7 +55,7 @@ if __name__ == "__main__":
     food_count = 3
     obstacle_count = 10
     nest_count = 1
-    square_pixel_width = 50
+    square_pixel_width = 60
     agent_vision_radius = 1
     exchange_delay = 1
 
@@ -272,7 +271,8 @@ if __name__ == "__main__":
     )
 
     pygame.init()
-    pygame.display.set_caption("Scavenging Ant")
+    pygame.display.set_caption("Q-Learning Ants")
+    pygame.display.set_icon(pygame.image.load("../images/icons8-ant-30.png"))
 
     window_size = env.get_window_size()
     window = pygame.display.set_mode(window_size)
@@ -304,8 +304,8 @@ if __name__ == "__main__":
 
                 actions = {agent_name: np.argmax(q[agent_name][observations[agent_name]]) for agent_name in env.agents}
                 observations, rewards, terminations, truncations, info = env.step(actions)
-                selected_agent_color = info[f"agent_{selected_agent_index}"]["agent_color"]
-                selected_agent_observation = observations[f"agent_{selected_agent_index}"]
+                selected_agent_name = f"agent_{selected_agent_index}"
+                selected_agent_observation = observations[selected_agent_name]
 
                 canvas = pygame.Surface(window_size)
                 env.draw(canvas)
@@ -318,20 +318,14 @@ if __name__ == "__main__":
                         actions = q[f"agent_{selected_agent_index}"].get(grid_observation)
 
                         if actions is not None:
-                            radius = square_pixel_width / 2
-                            LayeredSprite(
-                                foreground_image="../images/icons8-slide-up-200.png",
-                                background_image="../images/icons8-slide-up-outline-200.png",
-                                dimensions=(radius, radius),
-                                rotation=get_rotation_from_action(int(np.argmax(actions))),
-                                color=selected_agent_color
-                            ).draw(
-                                canvas=canvas,
-                                position=(
-                                    column * square_pixel_width + square_pixel_width / 2 - radius / 2,
-                                    row * square_pixel_width + square_pixel_width / 2 - radius / 2,
-                                ),
+                            image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
+                            rotation = get_rotation_from_action(int(np.argmax(actions)))
+                            position = (
+                                column * square_pixel_width + square_pixel_width / 2 - image.get_width() / 2,
+                                row * square_pixel_width + square_pixel_width / 2 - image.get_height() / 2,
                             )
+                            image = pygame.transform.rotate(image, rotation)
+                            canvas.blit(image, position)
 
                 observations = flatten_observations(observations)
                 for _, termination in terminations.items():
