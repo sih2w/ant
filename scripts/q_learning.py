@@ -277,9 +277,12 @@ if __name__ == "__main__":
     window_size = env.get_window_size()
     window = pygame.display.set_mode(window_size)
     clock = pygame.time.Clock()
+    run_interval_time = 0
 
     selected_agent_index = 0
     switching_agent = False
+    auto_run_enabled = False
+    switching_auto_run = False
     running = True
     stepping_enabled = True
     stepping = False
@@ -293,7 +296,10 @@ if __name__ == "__main__":
         truncated = False
 
         while not terminated and not truncated:
-            if stepping_enabled and not stepping:
+            draw_next_step = auto_run_enabled and run_interval_time == 0
+            draw_next_step = draw_next_step or stepping_enabled and not stepping
+
+            if draw_next_step:
                 stepping = True
 
                 actions = {agent_name: np.argmax(q[agent_name][observations[agent_name]]) for agent_name in env.agents}
@@ -349,7 +355,15 @@ if __name__ == "__main__":
                     break
             else:
                 keys = pygame.key.get_pressed()
-                if keys[pygame.K_COMMA]:
+                if keys[pygame.K_a]:
+                    if not switching_auto_run:
+                        switching_auto_run = True
+                        auto_run_enabled = not auto_run_enabled
+                        run_interval_time = 0
+                else:
+                    switching_auto_run = False
+
+                if keys[pygame.K_s]:
                     if not switching_agent:
                         switching_agent = True
                         selected_agent_index += 1
@@ -363,7 +377,11 @@ if __name__ == "__main__":
                         stepping_enabled = False
                         stepping = False
 
-            clock.tick(env.render_fps)
+            delta_time = clock.tick(env.render_fps) / 1000
+            if auto_run_enabled:
+                run_interval_time += delta_time
+                if run_interval_time >= 0.10:
+                    run_interval_time = 0
 
     pygame.display.quit()
     pygame.quit()
