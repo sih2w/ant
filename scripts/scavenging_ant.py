@@ -401,8 +401,6 @@ class ScavengingAntEnv(ParallelEnv):
                 position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
                 position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
             )
-
-            image = pygame.image.load(f"../images/ants/{agent.get_name()}.png")
             canvas.blit(image, position)
 
     def __draw_food(self, canvas):

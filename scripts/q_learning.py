@@ -315,7 +315,7 @@ if __name__ == "__main__":
                         grid_observation = deepcopy(selected_agent_observation)
                         grid_observation["agent_position"] = (column, row)
                         grid_observation = flatten_observation(grid_observation)
-                        actions = q[f"agent_{selected_agent_index}"].get(grid_observation)
+                        actions = q[selected_agent_name].get(grid_observation)
 
                         if actions is not None:
                             image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
