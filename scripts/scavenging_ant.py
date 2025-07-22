@@ -317,13 +317,13 @@ class ScavengingAntEnv(ParallelEnv):
         for obstacle in self.__obstacles:
             if np.array_equal(new_position, obstacle.get_position()):
                 # Penalize the agent if it attempted to move into an obstacle.
-                reward -= 1
+                reward -= 100 # reward -= 1
                 break
         else:
             clipped_position = np.clip(new_position, [0, 0], [self.__grid_width - 1, self.__grid_height - 1])
             if np.array_equal(clipped_position, old_position):
                 # Penalize the agent if it attempted to move out of bounds.
-                reward -= 1
+                reward -= 100 # reward -= 1
             else:
                 carried_food = agent.get_carried_food()
                 if carried_food is None:
@@ -332,7 +332,7 @@ class ScavengingAntEnv(ParallelEnv):
                             agent.set_carried_food(food)
                             food.set_carried(True)
                             # Reward the agent for picking up food.
-                            reward += 1
+                            reward += 10 # reward += 1
                             break
                     else:
                         # Penalize the agent for taking a step without picking up food.
@@ -344,7 +344,7 @@ class ScavengingAntEnv(ParallelEnv):
                             agent.set_carried_food(None)
                             carried_food.set_hidden(True)
                             # Reward the agent for depositing food.
-                            reward += 1
+                            reward += 10 # reward += 1
                             break
                     else:
                         # Penalize the agent for taking a step without depositing food in a nest.

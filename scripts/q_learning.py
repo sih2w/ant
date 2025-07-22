@@ -40,8 +40,8 @@ def get_rotation_from_action(action: int):
 
 if __name__ == "__main__":
     # Learning parameters
-    episodes = 200_000
-    seed = 5 # random.randint(1, 10000)
+    episodes = 2_000
+    seed = 6 # random.randint(1, 10000)
     learning_rate_alpha = 0.10
     discount_factor_gamma = 0.70
     epsilon = 1
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     # Environment parameters
     grid_width = 10
     grid_height = 10
-    agent_count = 1 # 3
+    agent_count = 2 # 3
     food_count = 10 # 3
     obstacle_count = 10
     nest_count = 1
