@@ -16,7 +16,7 @@ type EpisodeData = list[dict]
 type RawObservation = dict[str, Any]
 type FlattenedObservation = tuple[int, ...]
 
-EPISODES = 2_000
+EPISODES = 10_000
 SEED = 10
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.70
@@ -34,6 +34,7 @@ AGENT_VISION_RADIUS = 1
 EXCHANGE_DELAY = 1
 RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.50
+SPARSE_INTERVAL = int(EPISODES / 100)
 
 def flatten_observation(observation: RawObservation) -> FlattenedObservation:
     """
@@ -65,7 +66,7 @@ def flatten_observations(raw_observations: dict[str, RawObservation]) -> dict[st
 
 def get_rotation_from_action(action: int) -> int or None:
     """
-    Returns the rotation from a given action
+    Returns the rotation from a given action.
     """
     if action == 0:
         return 180
@@ -120,8 +121,7 @@ def save_episode_data(file_name: str, episode_data: EpisodeData):
         json.dump(episode_data, file)
 
 def sparse_episode_data(
-        episode_data: EpisodeData,
-        interval: int = 100
+        episode_data: EpisodeData
 ) -> (list[int], list[int], list[int], list[int], list[int]):
     """
     Breaks EpisodeData down into separate lists that can be used for plotting.
@@ -132,7 +132,7 @@ def sparse_episode_data(
     proximity_count = []
     total_rewards = []
 
-    for episode in range(0, len(episode_data), interval):
+    for episode in range(0, len(episode_data), SPARSE_INTERVAL):
         data = episode_data[episode]
         if data is not None:
             if data.get("step_count") is not None:
@@ -454,7 +454,7 @@ if __name__ == "__main__":
         save_q(file_name, q)
         save_episode_data(file_name, episode_data)
 
-    episodes, episode_steps, exchange_count, proximity_count, total_rewards = sparse_episode_data(episode_data, 100)
+    episodes, episode_steps, exchange_count, proximity_count, total_rewards = sparse_episode_data(episode_data)
 
     if AGENTS_EXCHANGE_INFO:
         if len(exchange_count) > 0:
