@@ -258,25 +258,25 @@ def train() -> (LoadedQ, EpisodeData):
 
     return q, episode_data
 
-def draw_exchange_chart(exchange_count: list[int]):
+def draw_exchange_chart(episodes: list[int], exchange_count: list[int]):
     plt.plot(episodes, exchange_count, color="blue")
     plt.title("Exchange Count")
     plt.xlabel("Episodes")
     plt.show()
 
-def draw_proximity_chart(proximity_count: list[int]):
+def draw_proximity_chart(episodes: list[int], proximity_count: list[int]):
     plt.plot(episodes, proximity_count, color="orange")
     plt.title("Proximity Count")
     plt.xlabel("Episodes")
     plt.show()
 
-def draw_episode_steps_chart(episodes: list[int]):
+def draw_episode_steps_chart(episodes: list[int], episode_steps: list[int]):
     plt.plot(episodes, episode_steps, color="green")
     plt.title("Steps per Episode")
     plt.xlabel("Episodes")
     plt.show()
 
-def draw_rewards_chart(total_rewards: list[dict[str, int]]):
+def draw_rewards_chart(episodes: list[int], total_rewards: list[dict[str, int]]):
     episode_agent_rewards = {}
     for _, agent_rewards in enumerate(total_rewards):
         for agent_name, episode_reward in agent_rewards.items():
@@ -458,15 +458,15 @@ if __name__ == "__main__":
 
     if AGENTS_EXCHANGE_INFO:
         if len(exchange_count) > 0:
-            draw_exchange_chart(exchange_count)
+            draw_exchange_chart(episodes, exchange_count)
 
     if len(proximity_count) > 0:
-        draw_proximity_chart(proximity_count)
+        draw_proximity_chart(episodes, proximity_count)
 
     if len(episode_steps) > 0:
-        draw_episode_steps_chart(episode_steps)
+        draw_episode_steps_chart(episodes, episode_steps)
 
     if len(total_rewards) > 0:
-        draw_rewards_chart(total_rewards)
+        draw_rewards_chart(episodes, total_rewards)
 
     validate()
