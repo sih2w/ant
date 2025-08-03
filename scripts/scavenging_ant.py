@@ -242,11 +242,11 @@ class ScavengingAntEnv(ParallelEnv):
         food_positions = []
 
         for food in self.__food:
-            food_positions.append(food.get_position())
+            food_positions.append(tuple(food.get_position()))
             carried_food.append(int(food.is_carried()))
 
         return {
-            "agent_position": agent.get_position(),
+            "agent_position": tuple(agent.get_position()),
             "carrying_food": agent.get_carried_food() is not None,
             "carried_food": tuple(carried_food),
             "food_positions": tuple(food_positions),
