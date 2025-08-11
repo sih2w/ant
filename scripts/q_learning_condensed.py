@@ -1,53 +1,20 @@
-import ast
 import os
 from typing import Optional
 import numpy as np
 import json
 import pygame
 import matplotlib.pyplot as plt
-from scripts.scavenging_ant import ScavengingAntEnv, Agent
+from scripts.scavenging_ant import ScavengingAntEnv
 from tqdm import tqdm
-
-type EpisodeData = {
-    "steps": [int],
-    "rewards": [{[str]: float}]
-}
-
-type FoodPositions = tuple[int, ...]
-type AgentLocation = tuple[int, int]
-type Actions = list[int, ...]
-type AgentName = str
-
-type Q = {
-    "return_policy": {
-        AgentName: {
-            AgentLocation: Actions
-        }
-    },
-    "search_policy": {
-        AgentName: {
-            AgentLocation: {
-                FoodPositions: Actions
-            }
-        }
-    }
-}
-
-type Observation = {
-    "agent_position": tuple[int, int],
-    "carrying_food": bool,
-    "carried_food": tuple[int, ...],
-    "food_positions": tuple[int, ...],
-    "agent_detected": bool
-}
+from scripts.types import *
 
 EPISODES = 1_000
-SEED = 1233
+SEED = 0
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.95
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
-AGENTS_EXCHANGE_INFO = False
+AGENTS_EXCHANGE_INFO = True
 GRID_WIDTH = 10
 GRID_HEIGHT = 10
 AGENT_COUNT = 2
@@ -62,50 +29,58 @@ RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.20
 ACTION_COUNT = 4
 SPARSE_INTERVAL = int(EPISODES / 100)
+SAVE_AFTER_TRAINING = True
+SHOW_AFTER_TRAINING = True
+ACTION_ROTATIONS = (180, 0, 90, -90)
+SAVE_DIRECTORY = "../runs/q_learning"
+FILE_NAME = (
+    f"{LEARNING_RATE_ALPHA}_"
+    f"{DISCOUNT_FACTOR_GAMMA}_"
+    f"{EPSILON_DECAY_RATE}_"
+    f"{EPISODES}_"
+    f"{SEED}_"
+    f"{GRID_WIDTH}_"
+    f"{GRID_HEIGHT}_"
+    f"{AGENT_COUNT}_"
+    f"{FOOD_COUNT}_"
+    f"{NEST_COUNT}_"
+    f"{OBSTACLE_COUNT}_"
+    f"{AGENT_VISION_RADIUS}_"
+    f"{AGENTS_EXCHANGE_INFO}_"
+    f"{EXCHANGE_DELAY}"
+)
 
-def get_rotation_from_action(action: int) -> int or None:
-    if action == 0:
-        return 180
-    elif action == 1:
-        return 0
-    elif action == 2:
-        return 90
-    elif action == 3:
-        return -90
 
-def convert_tuple_keys_to_strings(d):
-    if isinstance(d, dict):
-        return {str(key) if isinstance(key, tuple) else key: convert_tuple_keys_to_strings(value) for key, value in d.items()}
-    return d
+def convert_dict_to_json_compatible(data):
+    if isinstance(data, dict):
+        return {str(key): convert_dict_to_json_compatible(value) for key, value in data.items()}
+    return data
 
-def convert_string_keys_to_tuples(d):
-    if isinstance(d, dict):
+
+def convert_json_compatible_to_dict(data):
+    if isinstance(data, dict):
         new_dict = {}
-        for key, value in d.items():
-            if isinstance(key, str):
-                try:
-                    new_key = ast.literal_eval(key)
-                    if not isinstance(new_key, tuple):
-                        new_key = key
-                except (ValueError, SyntaxError):
-                    new_key = key
-            else:
-                new_key = key
-            new_dict[new_key] = convert_string_keys_to_tuples(value)
+        for key, value in data.items():
+            if key.startswith("(") and key.endswith(")"):
+                key = eval(key)
+            new_dict[key] = convert_json_compatible_to_dict(value)
         return new_dict
-    return d
+    return data
 
-def load_data(directory: str, file_name: str) -> (Q, EpisodeData):
-    with open(f"{directory}/{file_name}.json", "r") as file:
+
+def load_data() -> (StateActions, EpisodeData):
+    with open(f"{SAVE_DIRECTORY}/{FILE_NAME}.json", "r") as file:
         data = json.load(file)
-        convert_string_keys_to_tuples(data["q"])
-        return data["q"], data["episode_data"]
+        return convert_json_compatible_to_dict(data["state_actions"]), data["episode_data"]
 
-def save_data(directory: str, file_name: str, q: Q, episode_data: EpisodeData) -> None:
-    with open(f"{directory}/{file_name}.json", "w") as file:
-        saved_q = dict(q)
-        convert_tuple_keys_to_strings(saved_q)
-        json.dump({"q": saved_q, "episode_data": episode_data}, file)
+
+def save_data(state_actions: StateActions, episode_data: EpisodeData) -> None:
+    with open(f"{SAVE_DIRECTORY}/{FILE_NAME}.json", "w") as file:
+        json.dump({
+            "state_actions": convert_dict_to_json_compatible(state_actions),
+            "episode_data": episode_data
+        }, file)
+
 
 def sparsify(data: list) -> list:
     sparse_data = []
@@ -113,41 +88,59 @@ def sparsify(data: list) -> list:
         sparse_data.append(data[index])
     return sparse_data
 
+
 def get_return_actions(
-        q: Q,
+        state_actions: StateActions,
         agent_name: AgentName,
         location: AgentLocation
 ) -> Optional[Actions]:
-    q["return_policy"] = q.get("return_policy") or {}
-    q["return_policy"][agent_name] = q["return_policy"].get(agent_name) or {}
-    q["return_policy"][agent_name][location] = q["return_policy"][agent_name].get(location) or np.zeros(ACTION_COUNT).tolist()
-    return q["return_policy"][agent_name][location]
+    if "return_policy" not in state_actions:
+        state_actions["return_policy"] = {}
+
+    if agent_name not in state_actions["return_policy"]:
+        state_actions["return_policy"][agent_name] = {}
+
+    if location not in state_actions["return_policy"][agent_name]:
+        state_actions["return_policy"][agent_name][location] = np.zeros(ACTION_COUNT).tolist()
+
+    return state_actions["return_policy"][agent_name][location]
+
 
 def get_search_actions(
-        q: Q,
+        state_actions: StateActions,
         agent_name: AgentName,
         location: AgentLocation,
         food_positions: FoodPositions
 ) -> Optional[Actions]:
-    q["search_policy"] = q.get("search_policy") or {}
-    q["search_policy"][agent_name] = q["search_policy"].get(agent_name) or {}
-    q["search_policy"][agent_name][location] = q["search_policy"][agent_name].get(location) or {}
-    q["search_policy"][agent_name][location][food_positions] = q["search_policy"][agent_name][location].get(food_positions) or np.zeros(ACTION_COUNT).tolist()
-    return q["search_policy"][agent_name][location][food_positions]
+    if "search_policy" not in state_actions:
+        state_actions["search_policy"] = {}
+
+    if agent_name not in state_actions["search_policy"]:
+        state_actions["search_policy"][agent_name] = {}
+
+    if location not in state_actions["search_policy"][agent_name]:
+        state_actions["search_policy"][agent_name][location] = {}
+
+    if food_positions not in state_actions["search_policy"][agent_name][location]:
+        state_actions["search_policy"][agent_name][location][food_positions] = np.zeros(ACTION_COUNT).tolist()
+
+    return state_actions["search_policy"][agent_name][location][food_positions]
+
 
 def get_actions(
-        q: Q,
+        state_actions: StateActions,
         agent_name: str,
         agent_location: AgentLocation,
         food_positions: FoodPositions,
         carrying_food: bool,
 ) -> Actions:
     if carrying_food:
-        return get_return_actions(q, agent_name, agent_location)
-    return get_search_actions(q, agent_name, agent_location, food_positions)
+        return get_return_actions(state_actions, agent_name, agent_location)
+    return get_search_actions(state_actions, agent_name, agent_location, food_positions)
+
 
 def update_actions(
-        q: Q,
+        state_actions: StateActions,
         agent_name: str,
         was_carrying_food: bool,
         is_carrying_food: bool,
@@ -158,12 +151,13 @@ def update_actions(
         selected_action: int,
         reward: float
 ):
-    old_actions = get_actions(q, agent_name, old_agent_location, old_food_positions, was_carrying_food)
-    new_actions = get_actions(q, agent_name, new_agent_location, new_food_positions, is_carrying_food)
+    old_actions = get_actions(state_actions, agent_name, old_agent_location, old_food_positions, was_carrying_food)
+    new_actions = get_actions(state_actions, agent_name, new_agent_location, new_food_positions, is_carrying_food)
     old_actions[selected_action] = old_actions[selected_action] + LEARNING_RATE_ALPHA * (
             reward + DISCOUNT_FACTOR_GAMMA * np.max(new_actions) - old_actions[selected_action])
 
-def train() -> (Q, EpisodeData):
+
+def train() -> (StateActions, EpisodeData):
     env = ScavengingAntEnv(
         render_mode=None,
         seed=SEED,
@@ -176,7 +170,7 @@ def train() -> (Q, EpisodeData):
         agent_vision_radius=AGENT_VISION_RADIUS,
     )
 
-    q: Q = {}
+    state_actions: StateActions = {}
     episode_data: EpisodeData = {"steps": [], "rewards": []}
 
     epsilon = EPSILON_START
@@ -193,11 +187,10 @@ def train() -> (Q, EpisodeData):
             actions = {}
             for agent_name, observation in observations.items():
                 if rng.random() > epsilon:
-                    # Get the best action for the current observation.
                     actions[agent_name] = int(
                         np.argmax(
                             get_actions(
-                                q,
+                                state_actions,
                                 agent_name,
                                 observation["agent_position"],
                                 observation["food_positions"],
@@ -206,7 +199,6 @@ def train() -> (Q, EpisodeData):
                         )
                     )
                 else:
-                    # Get a random action for the current observation.
                     actions[agent_name] = env.action_space(agent_name).sample()
 
             new_observations, rewards, terminations, truncations, infos = env.step(actions)
@@ -226,7 +218,7 @@ def train() -> (Q, EpisodeData):
             for agent_name, new_observation in new_observations.items():
                 old_observation = observations[agent_name]
                 update_actions(
-                    q,
+                    state_actions,
                     agent_name,
                     old_observation["carrying_food"],
                     new_observation["carrying_food"],
@@ -246,12 +238,24 @@ def train() -> (Q, EpisodeData):
         episode_data["rewards"].append(total_rewards)
         episode_progress_bar.update(1)
 
+        if AGENTS_EXCHANGE_INFO:
+            shared_return_policy = {}
+            for agent_name in env.agents:
+                state_actions["return_policy"][agent_name] = state_actions["return_policy"].get(agent_name, {})
+
+                for agent_location, actions in state_actions["return_policy"][agent_name].items():
+                    shared_return_policy[agent_location] = actions
+
+            for agent_name in env.agents:
+                state_actions["return_policy"][agent_name] = shared_return_policy.copy()
+
     episode_progress_bar.close()
     env.close()
 
-    return q, episode_data
+    return state_actions, episode_data
 
-def validate(q: Q):
+
+def visualize(state_actions: StateActions):
     """
     Creates a visual representation of the Q-learning agents' learned policies.
     Agents will take the action they found to be optimal at each step.
@@ -306,7 +310,7 @@ def validate(q: Q):
                     actions[agent_name] = int(
                         np.argmax(
                             get_actions(
-                                q,
+                                state_actions,
                                 agent_name,
                                 observations[agent_name]["agent_position"],
                                 observations[agent_name]["food_positions"],
@@ -329,7 +333,7 @@ def validate(q: Q):
                     for column in range(GRID_WIDTH):
                         agent_position = (column, row)
                         actions = get_actions(
-                            q,
+                            state_actions,
                             selected_agent_name,
                             agent_position,
                             food_positions,
@@ -337,7 +341,7 @@ def validate(q: Q):
                         )
 
                         image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
-                        rotation = get_rotation_from_action(int(np.argmax(actions)))
+                        rotation = ACTION_ROTATIONS[int(np.argmax(actions))]
                         position = (
                             column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
                             row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
@@ -397,38 +401,22 @@ def validate(q: Q):
     pygame.display.quit()
     pygame.quit()
 
-if __name__ == "__main__":
-    file_name = (
-        f"{LEARNING_RATE_ALPHA}_"
-        f"{DISCOUNT_FACTOR_GAMMA}_"
-        f"{EPSILON_DECAY_RATE}_"
-        f"{EPISODES}_"
-        f"{SEED}_"
-        f"{GRID_WIDTH}_"
-        f"{GRID_HEIGHT}_"
-        f"{AGENT_COUNT}_"
-        f"{FOOD_COUNT}_"
-        f"{NEST_COUNT}_"
-        f"{OBSTACLE_COUNT}_"
-        f"{AGENT_VISION_RADIUS}_"
-        f"{AGENTS_EXCHANGE_INFO}_"
-        f"{EXCHANGE_DELAY}"
-    )
 
-    directory = "../tests/q_learning_condensed"
-    os.makedirs(name=directory, exist_ok=True)
+if __name__ == "__main__":
+    os.makedirs(name=SAVE_DIRECTORY, exist_ok=True)
 
     try:
-        q, episode_data = load_data(directory, file_name)
+        state_actions, episode_data = load_data()
     except FileNotFoundError:
-        q, episode_data = train()
-        # save_data(directory, file_name, q, episode_data)
+        state_actions, episode_data = train()
+        if SAVE_AFTER_TRAINING:
+            save_data(state_actions, episode_data)
 
     episode_steps = sparsify(episode_data["steps"])
     episodes = [episode for episode in range(len(episode_steps))]
 
     plt.plot(episodes, episode_steps, color="green")
-    plt.title("Steps per Episode")
+    plt.title(f"Steps {"With" if AGENTS_EXCHANGE_INFO else "Without"} Exchange")
     plt.xlabel("Episodes")
     plt.show()
 
@@ -442,8 +430,10 @@ if __name__ == "__main__":
     for agent_name, episode_rewards in episode_agent_rewards.items():
         plt.plot(episodes, episode_rewards, label=agent_name)
 
-    plt.title("Rewards per Episode")
+    plt.title(f"Rewards {"With" if AGENTS_EXCHANGE_INFO else "Without"} Exchange")
     plt.xlabel("Episodes")
     plt.legend()
     plt.show()
-    validate(q)
+
+    if SHOW_AFTER_TRAINING:
+        visualize(state_actions)
