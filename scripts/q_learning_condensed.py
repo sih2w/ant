@@ -1,11 +1,11 @@
 import ast
 import os
+from typing import Optional
 import numpy as np
 import json
 import pygame
 import matplotlib.pyplot as plt
-from scripts.scavenging_ant import ScavengingAntEnv
-from copy import deepcopy
+from scripts.scavenging_ant import ScavengingAntEnv, Agent
 from tqdm import tqdm
 
 type EpisodeData = {
@@ -13,10 +13,22 @@ type EpisodeData = {
     "rewards": [{[str]: float}]
 }
 
+type FoodPositions = tuple[int, ...]
+type AgentLocation = tuple[int, int]
+type Actions = list[int, ...]
+type AgentName = str
+
 type Q = {
-    [tuple, ...]: {
-        [tuple[int, int]]: {
-            [tuple[str, bool]]: tuple[float, ...]
+    "return_policy": {
+        AgentName: {
+            AgentLocation: Actions
+        }
+    },
+    "search_policy": {
+        AgentName: {
+            AgentLocation: {
+                FoodPositions: Actions
+            }
         }
     }
 }
@@ -29,11 +41,10 @@ type Observation = {
     "agent_detected": bool
 }
 
-ACTION_COUNT = 4
 EPISODES = 1_000
-SEED = 10
+SEED = 1233
 LEARNING_RATE_ALPHA = 0.10
-DISCOUNT_FACTOR_GAMMA = 0.70
+DISCOUNT_FACTOR_GAMMA = 0.95
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
 AGENTS_EXCHANGE_INFO = False
@@ -46,14 +57,13 @@ NEST_COUNT = 1
 SQUARE_PIXEL_WIDTH = 45
 AGENT_VISION_RADIUS = 1
 EXCHANGE_DELAY = 1
+
 RENDER_FPS = 30
-SECONDS_BETWEEN_AUTO_STEP = 0.50
+SECONDS_BETWEEN_AUTO_STEP = 0.20
+ACTION_COUNT = 4
 SPARSE_INTERVAL = int(EPISODES / 100)
 
 def get_rotation_from_action(action: int) -> int or None:
-    """
-    Returns the rotation from a given action.
-    """
     if action == 0:
         return 180
     elif action == 1:
@@ -63,26 +73,38 @@ def get_rotation_from_action(action: int) -> int or None:
     elif action == 3:
         return -90
 
-def convert_keys_to_default(dictionary: dict):
-    if isinstance(dictionary, dict):
-        return {ast.literal_eval(key): convert_keys_to_default(value) for key, value in dictionary.items()}
-    return dictionary
+def convert_tuple_keys_to_strings(d):
+    if isinstance(d, dict):
+        return {str(key) if isinstance(key, tuple) else key: convert_tuple_keys_to_strings(value) for key, value in d.items()}
+    return d
+
+def convert_string_keys_to_tuples(d):
+    if isinstance(d, dict):
+        new_dict = {}
+        for key, value in d.items():
+            if isinstance(key, str):
+                try:
+                    new_key = ast.literal_eval(key)
+                    if not isinstance(new_key, tuple):
+                        new_key = key
+                except (ValueError, SyntaxError):
+                    new_key = key
+            else:
+                new_key = key
+            new_dict[new_key] = convert_string_keys_to_tuples(value)
+        return new_dict
+    return d
 
 def load_data(directory: str, file_name: str) -> (Q, EpisodeData):
     with open(f"{directory}/{file_name}.json", "r") as file:
         data = json.load(file)
-        data["q"] = convert_keys_to_default(data["q"])
+        convert_string_keys_to_tuples(data["q"])
         return data["q"], data["episode_data"]
-
-def convert_keys_to_strings(dictionary: dict):
-    if isinstance(dictionary, dict):
-        return {str(key): convert_keys_to_strings(value) for key, value in dictionary.items()}
-    return dictionary
 
 def save_data(directory: str, file_name: str, q: Q, episode_data: EpisodeData) -> None:
     with open(f"{directory}/{file_name}.json", "w") as file:
-        saved_q = deepcopy(q)
-        saved_q = convert_keys_to_strings(saved_q)
+        saved_q = dict(q)
+        convert_tuple_keys_to_strings(saved_q)
         json.dump({"q": saved_q, "episode_data": episode_data}, file)
 
 def sparsify(data: list) -> list:
@@ -91,55 +113,57 @@ def sparsify(data: list) -> list:
         sparse_data.append(data[index])
     return sparse_data
 
-def reconcile(
+def get_return_actions(
         q: Q,
-        observation: Observation,
-        agent_name: str
-):
-    if q.get(observation["food_positions"]) is None:
-        q[observation["food_positions"]] = {}
-    if q[observation["food_positions"]].get(observation["agent_position"]) is None:
-        q[observation["food_positions"]][observation["agent_position"]] = {}
-    if q[observation["food_positions"]][observation["agent_position"]].get((agent_name, observation["carrying_food"])) is None:
-        q[observation["food_positions"]][observation["agent_position"]][(agent_name, observation["carrying_food"])] = np.zeros(ACTION_COUNT).tolist()
+        agent_name: AgentName,
+        location: AgentLocation
+) -> Optional[Actions]:
+    q["return_policy"] = q.get("return_policy") or {}
+    q["return_policy"][agent_name] = q["return_policy"].get(agent_name) or {}
+    q["return_policy"][agent_name][location] = q["return_policy"][agent_name].get(location) or np.zeros(ACTION_COUNT).tolist()
+    return q["return_policy"][agent_name][location]
+
+def get_search_actions(
+        q: Q,
+        agent_name: AgentName,
+        location: AgentLocation,
+        food_positions: FoodPositions
+) -> Optional[Actions]:
+    q["search_policy"] = q.get("search_policy") or {}
+    q["search_policy"][agent_name] = q["search_policy"].get(agent_name) or {}
+    q["search_policy"][agent_name][location] = q["search_policy"][agent_name].get(location) or {}
+    q["search_policy"][agent_name][location][food_positions] = q["search_policy"][agent_name][location].get(food_positions) or np.zeros(ACTION_COUNT).tolist()
+    return q["search_policy"][agent_name][location][food_positions]
 
 def get_actions(
         q: Q,
-        observation: Observation,
-        agent_name: str
-):
-    return q[observation["food_positions"]][observation["agent_position"]][(agent_name, observation["carrying_food"])]
-
-def get_actions_at_agent_position(
-        q: Q,
-        observation: Observation,
         agent_name: str,
-        agent_position: (int, int)
-):
-    actions = q.get(observation["food_positions"])
-    if actions is not None:
-        actions = actions.get(agent_position)
-        if actions is not None:
-            actions = actions.get((agent_name, observation["carrying_food"]))
-            return actions
+        agent_location: AgentLocation,
+        food_positions: FoodPositions,
+        carrying_food: bool,
+) -> Actions:
+    if carrying_food:
+        return get_return_actions(q, agent_name, agent_location)
+    return get_search_actions(q, agent_name, agent_location, food_positions)
 
 def update_actions(
         q: Q,
-        observation: Observation,
-        new_observation: Observation,
         agent_name: str,
+        was_carrying_food: bool,
+        is_carrying_food: bool,
+        old_agent_location: AgentLocation,
+        new_agent_location: AgentLocation,
+        old_food_positions: FoodPositions,
+        new_food_positions: FoodPositions,
         selected_action: int,
         reward: float
 ):
-    old_actions = get_actions(q, observation, agent_name)
-    new_actions = get_actions(q, new_observation, agent_name)
+    old_actions = get_actions(q, agent_name, old_agent_location, old_food_positions, was_carrying_food)
+    new_actions = get_actions(q, agent_name, new_agent_location, new_food_positions, is_carrying_food)
     old_actions[selected_action] = old_actions[selected_action] + LEARNING_RATE_ALPHA * (
-                reward + DISCOUNT_FACTOR_GAMMA * np.max(new_actions) - old_actions[selected_action])
+            reward + DISCOUNT_FACTOR_GAMMA * np.max(new_actions) - old_actions[selected_action])
 
 def train() -> (Q, EpisodeData):
-    """
-    Trains Q-learning agents in an environment defined by the passed parameters.
-    """
     env = ScavengingAntEnv(
         render_mode=None,
         seed=SEED,
@@ -161,11 +185,6 @@ def train() -> (Q, EpisodeData):
 
     for episode in range(EPISODES):
         observations, _ = env.reset(seed=SEED)
-        for agent_name, observation in observations.items():
-            # Add the observation to the Q table if it doesn't already exist.
-            # This initializes all action values for this observation to zero.
-            reconcile(q, observation, agent_name)
-
         terminated, truncated = False, False
         step_count = 0
         total_rewards = {agent_name: 0 for agent_name in env.agents}
@@ -175,7 +194,17 @@ def train() -> (Q, EpisodeData):
             for agent_name, observation in observations.items():
                 if rng.random() > epsilon:
                     # Get the best action for the current observation.
-                    actions[agent_name] = np.argmax(get_actions(q, observation, agent_name))
+                    actions[agent_name] = int(
+                        np.argmax(
+                            get_actions(
+                                q,
+                                agent_name,
+                                observation["agent_position"],
+                                observation["food_positions"],
+                                observation["carrying_food"],
+                            )
+                        )
+                    )
                 else:
                     # Get a random action for the current observation.
                     actions[agent_name] = env.action_space(agent_name).sample()
@@ -194,14 +223,17 @@ def train() -> (Q, EpisodeData):
                     if truncated:
                         break
 
-            # Update the Q table.
             for agent_name, new_observation in new_observations.items():
-                reconcile(q, new_observation, agent_name)
+                old_observation = observations[agent_name]
                 update_actions(
                     q,
-                    observations[agent_name],
-                    new_observation,
                     agent_name,
+                    old_observation["carrying_food"],
+                    new_observation["carrying_food"],
+                    old_observation["agent_position"],
+                    new_observation["agent_position"],
+                    old_observation["food_positions"],
+                    new_observation["food_positions"],
                     actions[agent_name],
                     rewards[agent_name]
                 )
@@ -219,7 +251,7 @@ def train() -> (Q, EpisodeData):
 
     return q, episode_data
 
-def validate():
+def validate(q: Q):
     """
     Creates a visual representation of the Q-learning agents' learned policies.
     Agents will take the action they found to be optimal at each step.
@@ -259,11 +291,7 @@ def validate():
     stepping = False
 
     while running:
-        # Visualize trained model.
         observations, info = env.reset(seed=SEED)
-        for agent_name, observation in observations.items():
-            reconcile(q, observation, agent_name)
-
         terminated = False
         truncated = False
 
@@ -273,37 +301,49 @@ def validate():
 
             if draw_next_step:
                 stepping = True
+                actions = {}
+                for agent_name in env.agents:
+                    actions[agent_name] = int(
+                        np.argmax(
+                            get_actions(
+                                q,
+                                agent_name,
+                                observations[agent_name]["agent_position"],
+                                observations[agent_name]["food_positions"],
+                                observations[agent_name]["carrying_food"],
+                            )
+                        )
+                    )
 
-                actions = {agent_name: np.argmax(get_actions(q, observations[agent_name], agent_name)) for agent_name in env.agents}
                 observations, rewards, terminations, truncations, info = env.step(actions)
-
-                for agent_name, observation in observations.items():
-                    reconcile(q, observation, agent_name)
-
                 selected_agent_name = f"agent_{selected_agent_index}"
                 selected_agent_observation = observations[selected_agent_name]
 
                 canvas = pygame.Surface(window_size)
                 env.draw(canvas)
 
+                food_positions = selected_agent_observation["food_positions"]
+                carrying_food = selected_agent_observation["carrying_food"]
+
                 for row in range(GRID_HEIGHT):
                     for column in range(GRID_WIDTH):
-                        actions = get_actions_at_agent_position(
+                        agent_position = (column, row)
+                        actions = get_actions(
                             q,
-                            selected_agent_observation,
                             selected_agent_name,
-                            (column, row),
+                            agent_position,
+                            food_positions,
+                            carrying_food
                         )
 
-                        if actions is not None:
-                            image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
-                            rotation = get_rotation_from_action(int(np.argmax(actions)))
-                            position = (
-                                column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
-                                row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
-                            )
-                            image = pygame.transform.rotate(image, rotation)
-                            canvas.blit(image, position)
+                        image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
+                        rotation = get_rotation_from_action(int(np.argmax(actions)))
+                        position = (
+                            column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
+                            row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
+                        )
+                        image = pygame.transform.rotate(image, rotation)
+                        canvas.blit(image, position)
 
                 for _, termination in terminations.items():
                     terminated = termination
@@ -382,7 +422,7 @@ if __name__ == "__main__":
         q, episode_data = load_data(directory, file_name)
     except FileNotFoundError:
         q, episode_data = train()
-        save_data(directory, file_name, q, episode_data)
+        # save_data(directory, file_name, q, episode_data)
 
     episode_steps = sparsify(episode_data["steps"])
     episodes = [episode for episode in range(len(episode_steps))]
@@ -406,5 +446,4 @@ if __name__ == "__main__":
     plt.xlabel("Episodes")
     plt.legend()
     plt.show()
-
-    validate()
+    validate(q)
