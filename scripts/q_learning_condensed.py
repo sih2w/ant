@@ -1,30 +1,29 @@
 import os
-from typing import Optional
 import numpy as np
 import json
 import pygame
 import matplotlib.pyplot as plt
+from numpy.random import Generator
 from scripts.scavenging_ant import ScavengingAntEnv
 from tqdm import tqdm
 from scripts.types import *
 
-EPISODES = 1_000
-SEED = 0
+EPISODES = 100_000
+SEED = 3000
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.95
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
 AGENTS_EXCHANGE_INFO = True
-GRID_WIDTH = 10
+GRID_WIDTH = 20
 GRID_HEIGHT = 10
-AGENT_COUNT = 2
+AGENT_COUNT = 1
 FOOD_COUNT = 10
 OBSTACLE_COUNT = 10
 NEST_COUNT = 1
-SQUARE_PIXEL_WIDTH = 45
 AGENT_VISION_RADIUS = 1
-EXCHANGE_DELAY = 1
 
+SQUARE_PIXEL_WIDTH = 40
 RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.20
 ACTION_COUNT = 4
@@ -46,8 +45,7 @@ FILE_NAME = (
     f"{NEST_COUNT}_"
     f"{OBSTACLE_COUNT}_"
     f"{AGENT_VISION_RADIUS}_"
-    f"{AGENTS_EXCHANGE_INFO}_"
-    f"{EXCHANGE_DELAY}"
+    f"{AGENTS_EXCHANGE_INFO}"
 )
 
 
@@ -93,17 +91,22 @@ def get_return_actions(
         state_actions: StateActions,
         agent_name: AgentName,
         location: AgentLocation
-) -> Optional[Actions]:
+) -> (Actions, bool):
+    initialized = False
+
     if "return_policy" not in state_actions:
+        initialized = True
         state_actions["return_policy"] = {}
 
     if agent_name not in state_actions["return_policy"]:
+        initialized = True
         state_actions["return_policy"][agent_name] = {}
 
     if location not in state_actions["return_policy"][agent_name]:
+        initialized = True
         state_actions["return_policy"][agent_name][location] = np.zeros(ACTION_COUNT).tolist()
 
-    return state_actions["return_policy"][agent_name][location]
+    return state_actions["return_policy"][agent_name][location], initialized
 
 
 def get_search_actions(
@@ -111,20 +114,26 @@ def get_search_actions(
         agent_name: AgentName,
         location: AgentLocation,
         food_positions: FoodPositions
-) -> Optional[Actions]:
+) -> (Actions, bool):
+    initialized = False
+
     if "search_policy" not in state_actions:
+        initialized = True
         state_actions["search_policy"] = {}
 
     if agent_name not in state_actions["search_policy"]:
+        initialized = True
         state_actions["search_policy"][agent_name] = {}
 
     if location not in state_actions["search_policy"][agent_name]:
+        initialized = True
         state_actions["search_policy"][agent_name][location] = {}
 
     if food_positions not in state_actions["search_policy"][agent_name][location]:
-        state_actions["search_policy"][agent_name][location][food_positions] = np.zeros(ACTION_COUNT).tolist()
+        initialized = True
+        state_actions["search_policy"][agent_name][location][food_positions] = [0.00 for _ in range(ACTION_COUNT)]
 
-    return state_actions["search_policy"][agent_name][location][food_positions]
+    return state_actions["search_policy"][agent_name][location][food_positions], initialized
 
 
 def get_actions(
@@ -151,10 +160,153 @@ def update_actions(
         selected_action: int,
         reward: float
 ):
-    old_actions = get_actions(state_actions, agent_name, old_agent_location, old_food_positions, was_carrying_food)
-    new_actions = get_actions(state_actions, agent_name, new_agent_location, new_food_positions, is_carrying_food)
+    old_actions, _ = get_actions(state_actions, agent_name, old_agent_location, old_food_positions, was_carrying_food)
+    new_actions, _ = get_actions(state_actions, agent_name, new_agent_location, new_food_positions, is_carrying_food)
     old_actions[selected_action] = old_actions[selected_action] + LEARNING_RATE_ALPHA * (
             reward + DISCOUNT_FACTOR_GAMMA * np.max(new_actions) - old_actions[selected_action])
+
+
+def are_close_enough(agent_1_location: AgentLocation, agent_2_location: AgentLocation) -> bool:
+    return np.array_equal(agent_1_location, agent_2_location)
+
+
+def give_return_actions(
+        state_actions: StateActions,
+        from_agent_name: AgentName,
+        to_agent_name: AgentName,
+) -> None:
+    state_actions["return_policy"][from_agent_name] = state_actions["return_policy"].get(from_agent_name, {})
+    state_actions["return_policy"][to_agent_name] = state_actions["return_policy"].get(to_agent_name, {})
+
+    for agent_location, actions in state_actions["return_policy"][from_agent_name].items():
+        if not agent_location in state_actions["return_policy"][to_agent_name]:
+            state_actions["return_policy"][to_agent_name][agent_location] = actions.copy()
+
+
+def give_current_search_actions(
+        state_actions: StateActions,
+        from_agent_name: AgentName,
+        to_agent_name: AgentName,
+        food_positions: FoodPositions,
+        agent_location: AgentLocation,
+) -> None:
+    given_actions, _ = get_search_actions(state_actions, from_agent_name, agent_location, food_positions)
+    overridden_actions, initialized = get_search_actions(state_actions, to_agent_name, agent_location, food_positions)
+
+    if initialized:
+        for index, action in enumerate(given_actions):
+            overridden_actions[index] = action
+
+
+def combine_return_actions(
+        state_actions: StateActions,
+        from_agent_name: str,
+        to_agent_name: str
+) -> None:
+    shared_return_policy = {}
+    agent_names = {from_agent_name, to_agent_name}
+
+    for agent_name in agent_names:
+        state_actions["return_policy"][agent_name] = state_actions["return_policy"].get(agent_name, {})
+        for agent_location, actions in state_actions["return_policy"][agent_name].items():
+            shared_return_policy[agent_location] = actions
+
+    for agent_name in agent_names:
+        state_actions["return_policy"][agent_name] = shared_return_policy.copy()
+
+
+def exchange_info(state_actions: StateActions, observations: {AgentName: Observation}):
+    for agent_1_name, observation_1 in observations.items():
+        for agent_2_name, observation_2 in observations.items():
+            agent_1_position = observation_1["agent_position"]
+            agent_1_carrying_food = observation_1["carrying_food"]
+            agent_2_position = observation_2["agent_position"]
+            agent_2_carrying_food = observation_2["carrying_food"]
+            food_positions = observation_1["food_positions"]
+
+            if agent_1_name != agent_2_name and are_close_enough(agent_1_position, agent_2_position):
+                if agent_1_carrying_food == agent_2_carrying_food:
+                    if agent_1_carrying_food:
+                        # Agent 1 returning to nest.
+                        # Agent 2 returning to nest.
+                        combine_return_actions(state_actions, agent_1_name, agent_2_name)
+                    else:
+                        # Agent 1 searching for food.
+                        # Agent 2 searching for food.
+                        give_current_search_actions(state_actions, agent_2_name, agent_1_name, food_positions, agent_2_position)
+                        give_current_search_actions(state_actions, agent_1_name, agent_2_name, food_positions, agent_1_position)
+                else:
+                    if agent_1_carrying_food:
+                        # Agent 1 returning to nest.
+                        # Agent 2 searching for food.
+                        give_return_actions(state_actions, agent_2_name, agent_1_name)
+                        give_current_search_actions(state_actions, agent_2_name, agent_1_name, food_positions, agent_2_position)
+                    else:
+                        # Agent 1 searching for food.
+                        # Agent 2 returning to nest.
+                        give_return_actions(state_actions, agent_1_name, agent_2_name)
+                        give_current_search_actions(state_actions, agent_1_name, agent_2_name, food_positions, agent_1_position)
+
+
+def has_episode_ended(terminations: {AgentName: bool}, truncations: {AgentName: bool}) -> bool:
+    for _, termination in terminations.items():
+        terminated = termination
+        if terminated:
+            return True
+    else:
+        for _, truncation in truncations.items():
+            truncated = truncation
+            if truncated:
+                return True
+    return False
+
+
+def get_greedy_actions(
+        state_actions: StateActions,
+        observations: {AgentName: Observation}
+) -> {AgentName: Actions}:
+    actions = {}
+    for agent_name, observation in observations.items():
+        actions[agent_name] = int(
+            np.argmax(
+                get_actions(
+                    state_actions,
+                    agent_name,
+                    observation["agent_position"],
+                    observation["food_positions"],
+                    observation["carrying_food"],
+                )[0]
+            )
+        )
+
+    return actions
+
+
+def get_epsilon_greedy_actions(
+        state_actions: StateActions,
+        observations: {AgentName: Observation},
+        epsilon: float,
+        rng: Generator,
+        env: ScavengingAntEnv
+) -> {AgentName: Actions}:
+    actions = {}
+    for agent_name, observation in observations.items():
+        if rng.random() > epsilon:
+            actions[agent_name] = int(
+                np.argmax(
+                    get_actions(
+                        state_actions,
+                        agent_name,
+                        observation["agent_position"],
+                        observation["food_positions"],
+                        observation["carrying_food"],
+                    )[0]
+                )
+            )
+        else:
+            actions[agent_name] = env.action_space(agent_name).sample()
+
+    return actions
 
 
 def train() -> (StateActions, EpisodeData):
@@ -179,41 +331,16 @@ def train() -> (StateActions, EpisodeData):
 
     for episode in range(EPISODES):
         observations, _ = env.reset(seed=SEED)
-        terminated, truncated = False, False
+        terminations, truncations = {}, {}
         step_count = 0
         total_rewards = {agent_name: 0 for agent_name in env.agents}
 
-        while not terminated and not truncated:
-            actions = {}
-            for agent_name, observation in observations.items():
-                if rng.random() > epsilon:
-                    actions[agent_name] = int(
-                        np.argmax(
-                            get_actions(
-                                state_actions,
-                                agent_name,
-                                observation["agent_position"],
-                                observation["food_positions"],
-                                observation["carrying_food"],
-                            )
-                        )
-                    )
-                else:
-                    actions[agent_name] = env.action_space(agent_name).sample()
-
+        while not has_episode_ended(terminations, truncations):
+            actions = get_epsilon_greedy_actions(state_actions, observations, epsilon, rng, env)
             new_observations, rewards, terminations, truncations, infos = env.step(actions)
+
             for agent_name, reward in rewards.items():
                 total_rewards[agent_name] += reward
-
-            for _, termination in terminations.items():
-                terminated = termination
-                if terminated:
-                    break
-            else:
-                for _, truncation in truncations.items():
-                    truncated = truncation
-                    if truncated:
-                        break
 
             for agent_name, new_observation in new_observations.items():
                 old_observation = observations[agent_name]
@@ -230,6 +357,9 @@ def train() -> (StateActions, EpisodeData):
                     rewards[agent_name]
                 )
 
+            if AGENTS_EXCHANGE_INFO:
+                exchange_info(state_actions, new_observations)
+
             step_count = step_count + 1
             observations = new_observations
 
@@ -238,31 +368,54 @@ def train() -> (StateActions, EpisodeData):
         episode_data["rewards"].append(total_rewards)
         episode_progress_bar.update(1)
 
-        if AGENTS_EXCHANGE_INFO:
-            shared_return_policy = {}
-            for agent_name in env.agents:
-                state_actions["return_policy"][agent_name] = state_actions["return_policy"].get(agent_name, {})
-
-                for agent_location, actions in state_actions["return_policy"][agent_name].items():
-                    shared_return_policy[agent_location] = actions
-
-            for agent_name in env.agents:
-                state_actions["return_policy"][agent_name] = shared_return_policy.copy()
-
     episode_progress_bar.close()
     env.close()
 
     return state_actions, episode_data
 
 
+def draw_current_step(
+        env: ScavengingAntEnv,
+        observations: {AgentName: Observation},
+        selected_agent_index: int,
+        window: pygame.Surface,
+        window_size: (int, int),
+):
+    selected_agent_name = f"agent_{selected_agent_index}"
+    selected_agent_observation = observations[selected_agent_name]
+
+    canvas = pygame.Surface(window_size)
+    env.draw(canvas)
+
+    food_positions = selected_agent_observation["food_positions"]
+    carrying_food = selected_agent_observation["carrying_food"]
+
+    for row in range(GRID_HEIGHT):
+        for column in range(GRID_WIDTH):
+            agent_position = (column, row)
+            actions = get_actions(
+                state_actions,
+                selected_agent_name,
+                agent_position,
+                food_positions,
+                carrying_food
+            )[0]
+
+            image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
+            rotation = ACTION_ROTATIONS[int(np.argmax(actions))]
+            position = (
+                column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
+                row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
+            )
+            image = pygame.transform.rotate(image, rotation)
+            canvas.blit(image, position)
+
+    window.blit(canvas, canvas.get_rect())
+    pygame.event.pump()
+    pygame.display.flip()
+
+
 def visualize(state_actions: StateActions):
-    """
-    Creates a visual representation of the Q-learning agents' learned policies.
-    Agents will take the action they found to be optimal at each step.
-    Users can toggle auto running with the "A" key.
-    Users can alternate between agent policy visualizations with the "S" key.
-    Users can progress a single step at a time with the "SPACE" key.
-    """
     env = ScavengingAntEnv(
         render_mode="human",
         seed=SEED,
@@ -291,81 +444,40 @@ def visualize(state_actions: StateActions):
     auto_run_enabled = False
     switching_auto_run = False
     running = True
-    stepping_enabled = True
+    stepping_enabled = False
     stepping = False
 
     while running:
-        observations, info = env.reset(seed=SEED)
-        terminated = False
-        truncated = False
+        observations, _ = env.reset(seed=SEED)
+        terminations, truncations = {}, {}
 
-        while not terminated and not truncated:
+        draw_current_step(
+            env,
+            observations,
+            selected_agent_index,
+            window,
+            window_size
+        )
+
+        while running and not has_episode_ended(terminations, truncations):
             draw_next_step = auto_run_enabled and run_interval_time == 0
-            draw_next_step = draw_next_step or stepping_enabled and not stepping
+            draw_next_step = draw_next_step or (stepping_enabled and not stepping)
 
             if draw_next_step:
                 stepping = True
-                actions = {}
-                for agent_name in env.agents:
-                    actions[agent_name] = int(
-                        np.argmax(
-                            get_actions(
-                                state_actions,
-                                agent_name,
-                                observations[agent_name]["agent_position"],
-                                observations[agent_name]["food_positions"],
-                                observations[agent_name]["carrying_food"],
-                            )
-                        )
-                    )
-
+                actions = get_greedy_actions(state_actions, observations)
                 observations, rewards, terminations, truncations, info = env.step(actions)
-                selected_agent_name = f"agent_{selected_agent_index}"
-                selected_agent_observation = observations[selected_agent_name]
 
-                canvas = pygame.Surface(window_size)
-                env.draw(canvas)
-
-                food_positions = selected_agent_observation["food_positions"]
-                carrying_food = selected_agent_observation["carrying_food"]
-
-                for row in range(GRID_HEIGHT):
-                    for column in range(GRID_WIDTH):
-                        agent_position = (column, row)
-                        actions = get_actions(
-                            state_actions,
-                            selected_agent_name,
-                            agent_position,
-                            food_positions,
-                            carrying_food
-                        )
-
-                        image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
-                        rotation = ACTION_ROTATIONS[int(np.argmax(actions))]
-                        position = (
-                            column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
-                            row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
-                        )
-                        image = pygame.transform.rotate(image, rotation)
-                        canvas.blit(image, position)
-
-                for _, termination in terminations.items():
-                    terminated = termination
-                    if terminated:
-                        break
-                else:
-                    for _, truncation in truncations.items():
-                        truncated = truncation
-                        if truncated:
-                            break
-
-                window.blit(canvas, canvas.get_rect())
-                pygame.event.pump()
-                pygame.display.flip()
+                draw_current_step(
+                    env,
+                    observations,
+                    selected_agent_index,
+                    window,
+                    window_size
+                )
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    terminated = True
                     running = False
                     break
             else:
@@ -402,18 +514,9 @@ def visualize(state_actions: StateActions):
     pygame.quit()
 
 
-if __name__ == "__main__":
-    os.makedirs(name=SAVE_DIRECTORY, exist_ok=True)
-
-    try:
-        state_actions, episode_data = load_data()
-    except FileNotFoundError:
-        state_actions, episode_data = train()
-        if SAVE_AFTER_TRAINING:
-            save_data(state_actions, episode_data)
-
+def plot_episode_data(episode_data: EpisodeData):
     episode_steps = sparsify(episode_data["steps"])
-    episodes = [episode for episode in range(len(episode_steps))]
+    episodes = [episode * SPARSE_INTERVAL for episode in range(len(episode_steps))]
 
     plt.plot(episodes, episode_steps, color="green")
     plt.title(f"Steps {"With" if AGENTS_EXCHANGE_INFO else "Without"} Exchange")
@@ -434,6 +537,19 @@ if __name__ == "__main__":
     plt.xlabel("Episodes")
     plt.legend()
     plt.show()
+
+
+if __name__ == "__main__":
+    os.makedirs(name=SAVE_DIRECTORY, exist_ok=True)
+
+    try:
+        state_actions, episode_data = load_data()
+    except FileNotFoundError:
+        state_actions, episode_data = train()
+        if SAVE_AFTER_TRAINING:
+            save_data(state_actions, episode_data)
+
+    plot_episode_data(episode_data)
 
     if SHOW_AFTER_TRAINING:
         visualize(state_actions)

@@ -297,7 +297,7 @@ class ScavengingAntEnv(ParallelEnv):
             nest.set_position(self.__get_new_random_position(excluded_positions))
 
         for food in self.__food:
-            excluded_positions = Positionable.get_positions(self.__nests) + Positionable.get_positions(self.__obstacles)
+            excluded_positions = Positionable.get_positions(self.__nests) + Positionable.get_positions(self.__obstacles) + Positionable.get_positions(self.__food)
             food.set_position(self.__get_new_random_position(excluded_positions))
 
         excluded_positions = Positionable.get_positions(self.__obstacles) + Positionable.get_positions(self.__food)
@@ -331,6 +331,7 @@ class ScavengingAntEnv(ParallelEnv):
                         if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
                             agent.set_carried_food(food)
                             food.set_carried(True)
+                            print("PICKED UP FOOD")
                             # Reward the agent for picking up food.
                             reward += 10 # reward += 1
                             break
@@ -405,7 +406,7 @@ class ScavengingAntEnv(ParallelEnv):
 
     def __draw_food(self, canvas):
         for food in self.__food:
-            if not food.is_hidden() and not food.is_carried():
+            if not food.is_carried():
                 image = pygame.image.load("../images/icons8-whole-apple-48.png")
                 position = food.get_position()
                 position = (
