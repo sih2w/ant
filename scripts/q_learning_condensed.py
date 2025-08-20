@@ -138,7 +138,7 @@ def get_search_actions(
 
 def get_actions(
         state_actions: StateActions,
-        agent_name: str,
+        agent_name: AgentName,
         agent_location: AgentLocation,
         food_positions: FoodPositions,
         carrying_food: bool,
@@ -150,7 +150,7 @@ def get_actions(
 
 def update_actions(
         state_actions: StateActions,
-        agent_name: str,
+        agent_name: AgentName,
         was_carrying_food: bool,
         is_carrying_food: bool,
         old_agent_location: AgentLocation,
@@ -200,8 +200,8 @@ def give_current_search_actions(
 
 def combine_return_actions(
         state_actions: StateActions,
-        from_agent_name: str,
-        to_agent_name: str
+        from_agent_name: AgentName,
+        to_agent_name: AgentName
 ) -> None:
     shared_return_policy = {}
     agent_names = {from_agent_name, to_agent_name}
