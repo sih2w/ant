@@ -331,7 +331,6 @@ class ScavengingAntEnv(ParallelEnv):
                         if not food.is_hidden() and not food.is_carried() and np.array_equal(food.get_position(), new_position):
                             agent.set_carried_food(food)
                             food.set_carried(True)
-                            print("PICKED UP FOOD")
                             # Reward the agent for picking up food.
                             reward += 10 # reward += 1
                             break
