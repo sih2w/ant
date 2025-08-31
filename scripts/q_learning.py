@@ -1,307 +1,387 @@
-import ast
-import os
 from typing import Any
+import dill
+import os
+from collections import defaultdict
 import numpy as np
-import json
 import pygame
 import matplotlib.pyplot as plt
+from numpy.random import Generator
 from scripts.scavenging_ant import ScavengingAntEnv
-from collections import defaultdict
-from copy import deepcopy
 from tqdm import tqdm
+from scripts.types import *
 
-type LoadedQ = dict[str, dict[tuple[int, ...], np.ndarray[float]]]
-type SavedQ = dict[str, dict[str, list[float]]]
-type EpisodeData = list[dict]
-type RawObservation = dict[str, Any]
-type FlattenedObservation = tuple[int, ...]
-
-EPISODES = 1_000
-SEED = 0
+EPISODES = 1000
+SEED = 2
 LEARNING_RATE_ALPHA = 0.10
-DISCOUNT_FACTOR_GAMMA = 0.95
+DISCOUNT_FACTOR_GAMMA = 0.70
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
 AGENTS_EXCHANGE_INFO = True
-GRID_WIDTH = 10
+GRID_WIDTH = 20
 GRID_HEIGHT = 10
 AGENT_COUNT = 2
 FOOD_COUNT = 10
 OBSTACLE_COUNT = 10
 NEST_COUNT = 1
-SQUARE_PIXEL_WIDTH = 45
 AGENT_VISION_RADIUS = 1
-EXCHANGE_DELAY = 1
+
+SQUARE_PIXEL_WIDTH = 40
 RENDER_FPS = 30
-SECONDS_BETWEEN_AUTO_STEP = 0.50
+SECONDS_BETWEEN_AUTO_STEP = 0.10
+ACTION_COUNT = 4
 SPARSE_INTERVAL = int(EPISODES / 100)
+SAVE_AFTER_TRAINING = True
+SHOW_AFTER_TRAINING = True
+ACTION_ROTATIONS = (180, 0, 90, -90)
+SAVE_DIRECTORY = "../runs/q_learning"
+FILE_NAME = (
+    f"{LEARNING_RATE_ALPHA}_"
+    f"{DISCOUNT_FACTOR_GAMMA}_"
+    f"{EPSILON_DECAY_RATE}_"
+    f"{EPISODES}_"
+    f"{SEED}_"
+    f"{GRID_WIDTH}_"
+    f"{GRID_HEIGHT}_"
+    f"{AGENT_COUNT}_"
+    f"{FOOD_COUNT}_"
+    f"{NEST_COUNT}_"
+    f"{OBSTACLE_COUNT}_"
+    f"{AGENT_VISION_RADIUS}_"
+    f"{AGENTS_EXCHANGE_INFO}"
+)
 
-def flatten_observation(observation: RawObservation) -> FlattenedObservation:
-    """
-    Converts a RawObservation into a FlattenedObservation.
-    """
-    flattened_observation = [
-        int(observation["carrying_food"]),
-        int(observation["agent_detected"]),
-        observation["agent_position"][0],
-        observation["agent_position"][1],
-    ]
 
-    for carried_food in observation["carried_food"]:
-        flattened_observation.append(carried_food)
+def state_actions_factory() -> StateActions:
+    return {
+        "return_policy": defaultdict(lambda: defaultdict(lambda: np.zeros(ACTION_COUNT).tolist())),
+        "search_policy": defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: np.zeros(ACTION_COUNT).tolist()))),
+    }
 
-    for food_position in observation["food_positions"]:
-        flattened_observation.append(food_position[0])
-        flattened_observation.append(food_position[1])
-    return tuple(flattened_observation)
 
-def flatten_observations(raw_observations: dict[str, RawObservation]) -> dict[str, FlattenedObservation]:
-    """
-    Converts a dict of RawObservations into a dict of FlattenedObservations.
-    """
-    flattened_observations: dict[str, FlattenedObservation] = {}
-    for agent_name, observation in raw_observations.items():
-        flattened_observations[agent_name] = flatten_observation(observation)
-    return flattened_observations
+def exchanged_actions_factory() -> ExchangedActions:
+    return {
+        "return_policy": defaultdict(lambda: defaultdict(lambda: False)),
+        "search_policy": defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: False))),
+    }
 
-def get_rotation_from_action(action: int) -> int or None:
-    """
-    Returns the rotation from a given action.
-    """
-    if action == 0:
-        return 180
-    elif action == 1:
-        return 0
-    elif action == 2:
-        return 90
-    elif action == 3:
-        return -90
 
-def load_q(file_name: str) -> LoadedQ:
-    """
-    Loads a Q-learning model from a given file name.
-    """
-    with open(f"../tests/q_learning_models/{file_name}.json", "r") as file:
-        q = {}
-        loaded_q = json.load(file)
+def load_data() -> Tuple[StateActions, ExchangedActions, List[Episode]]:
+    with open(f"{SAVE_DIRECTORY}/{FILE_NAME}.dill", "rb") as file:
+        data = dill.load(file)
+        return data["state_actions"], data["exchanged_actions"], data["episode_data"]
 
-        for agent_name, agent_q in loaded_q.items():
-            q[agent_name] = {}
-            convert_progress_bar = tqdm(total=len(agent_q.items()), desc=f"Importing {agent_name} Policy")
-            for observation, action_values in agent_q.items():
-                q[agent_name][ast.literal_eval(observation)] = action_values
-                convert_progress_bar.update(1)
-            convert_progress_bar.close()
-        return q
 
-def load_episode_data(file_name: str) -> EpisodeData:
-    """
-    Loads EpisodeData from a given file name.
-    """
-    with open(f"../tests/q_learning_episodes/{file_name}.json", "r") as file:
-        return json.load(file)
+def save_data(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        episode_data: List[Episode]
+) -> None:
+    with open(f"{SAVE_DIRECTORY}/{FILE_NAME}.dill", "wb") as file:
+        dill.dump({
+            "state_actions": state_actions,
+            "exchanged_actions": exchanged_actions,
+            "episode_data": episode_data
+        }, file)
 
-def save_q(file_name: str, q: LoadedQ) -> None:
-    """
-    Saves a Q-learning model from a given file name.
-    """
-    with open(f"../tests/q_learning_models/{file_name}.json", "w") as file:
-        saved_q = {}
-        for agent_name, agent_q in q.items():
-            saved_q[agent_name] = {}
-            for observation, action_values in agent_q.items():
-                saved_q[agent_name][str(observation)] = action_values.tolist()
-        json.dump(saved_q, file)
 
-def save_episode_data(file_name: str, episode_data: EpisodeData):
-    """
-    Saves EpisodeData from a given file name.
-    """
-    with open(f"../tests/q_learning_episodes/{file_name}.json", "w") as file:
-        json.dump(episode_data, file)
+def sparsify(data: Any) -> Any:
+    sparse_data = []
+    for index in range(0, len(data), SPARSE_INTERVAL):
+        sparse_data.append(data[index])
+    return sparse_data
 
-def sparse_episode_data(
-        episode_data: EpisodeData
-) -> (list[int], list[int], list[int], list[int], list[int]):
-    """
-    Breaks EpisodeData down into separate lists that can be used for plotting.
-    """
-    episodes = []
-    episode_steps = []
-    exchange_count = []
-    proximity_count = []
-    total_rewards = []
 
-    for episode in range(0, len(episode_data), SPARSE_INTERVAL):
-        data = episode_data[episode]
-        if data is not None:
-            if data.get("step_count") is not None:
-                episode_steps.append(data["step_count"])
-            if data.get("exchange_count") is not None:
-                exchange_count.append(data["exchange_count"])
-            if data.get("proximity_count") is not None:
-                proximity_count.append(data["proximity_count"])
-            if data.get("total_rewards") is not None:
-                total_rewards.append(data["total_rewards"])
-            episodes.append(episode)
+def get_action_values(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        agent_name: AgentName,
+        agent_location: Location,
+        food_locations: FoodLocations,
+        carrying_food: bool,
+) -> Actions:
+    if carrying_food:
+        if exchanged_actions:
+            used = exchanged_actions["return_policy"][agent_name][agent_location]
+            if used is False:
+                exchanged_actions["return_policy"][agent_name][agent_location] = True
+        return state_actions["return_policy"][agent_name][agent_location]
+    else:
+        if exchanged_actions:
+            used = exchanged_actions["search_policy"][agent_name][agent_location][food_locations]
+            if used is False:
+                exchanged_actions["search_policy"][agent_name][agent_location][food_locations] = True
+        return state_actions["search_policy"][agent_name][agent_location][food_locations]
 
-    return (
-        episodes,
-        episode_steps,
-        exchange_count,
-        proximity_count,
-        total_rewards
-    )
 
-def train() -> (LoadedQ, EpisodeData):
-    """
-    Trains Q-learning agents in an environment defined by the passed parameters.
-    """
+def update_action_values(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        agent_name: AgentName,
+        was_carrying_food: bool,
+        is_carrying_food: bool,
+        old_agent_location: Location,
+        new_agent_location: Location,
+        old_food_positions: FoodLocations,
+        new_food_positions: FoodLocations,
+        selected_action: int,
+        reward: float
+):
+    old_actions = get_action_values(state_actions, exchanged_actions, agent_name, old_agent_location,
+                                    old_food_positions, was_carrying_food)
+    new_actions = get_action_values(state_actions, exchanged_actions, agent_name, new_agent_location,
+                                    new_food_positions, is_carrying_food)
+    old_actions[selected_action] = old_actions[selected_action] + LEARNING_RATE_ALPHA * (
+            reward + DISCOUNT_FACTOR_GAMMA * np.max(new_actions) - old_actions[selected_action])
+
+
+def are_close_enough(
+        agent_1_location: Location,
+        agent_2_location: Location
+) -> bool:
+    return np.array_equal(agent_1_location, agent_2_location)
+
+
+def fill_missing_search_policy(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        from_agent_name: AgentName,
+        to_agent_name: AgentName,
+) -> None:
+    source = state_actions["search_policy"][from_agent_name]
+    destination = state_actions["search_policy"][to_agent_name]
+    exchange_destination = exchanged_actions["search_policy"][to_agent_name]
+
+    for agent_location, food_location_actions in source.items():
+        for food_locations, action_values in food_location_actions.items():
+            if not food_locations in destination[agent_location]:
+                destination[agent_location][food_locations] = action_values.copy()
+                exchange_destination[agent_location][food_locations] = False
+
+
+def fill_missing_return_policy(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        from_agent_name: AgentName,
+        to_agent_name: AgentName,
+) -> None:
+    source = state_actions["return_policy"][from_agent_name]
+    destination = state_actions["return_policy"][to_agent_name]
+    exchange_destination = exchanged_actions["return_policy"][to_agent_name]
+
+    for agent_location, action_values in source.items():
+        if agent_location not in destination:
+            destination[agent_location] = action_values.copy()
+            exchange_destination[agent_location] = False
+
+
+def exchange(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        observations: Dict[AgentName, Observation]
+) -> None:
+    for agent_1_name, agent_1_observation in observations.items():
+        for agent_2_name, agent_2_observation in observations.items():
+            if agent_1_name == agent_2_name or not are_close_enough(
+                    agent_1_observation["agent_location"],
+                    agent_2_observation["agent_location"],
+            ):
+                continue
+
+            if agent_1_observation["carrying_food"] and agent_2_observation["carrying_food"]:
+                # Agent 1 returning to nest. Agent 2 returning to nest.
+                fill_missing_return_policy(state_actions, exchanged_actions, agent_1_name, agent_2_name)
+                fill_missing_return_policy(state_actions, exchanged_actions, agent_2_name, agent_1_name)
+            elif not agent_1_observation["carrying_food"] and not agent_2_observation["carrying_food"]:
+                # Agent 1 searching for food. Agent 2 searching for food.
+                fill_missing_search_policy(state_actions, exchanged_actions, agent_1_name, agent_2_name)
+                fill_missing_search_policy(state_actions, exchanged_actions, agent_2_name, agent_1_name)
+            elif not agent_1_observation["carrying_food"] and agent_2_observation["carrying_food"]:
+                # Agent 1 searching for food. Agent 2 returning to nest.
+                fill_missing_return_policy(state_actions, exchanged_actions, agent_1_name, agent_2_name)
+                fill_missing_search_policy(state_actions, exchanged_actions, agent_2_name, agent_1_name)
+            else:
+                # Agent 1 returning to nest. Agent 2 searching for food.
+                fill_missing_return_policy(state_actions, exchanged_actions, agent_2_name, agent_1_name)
+                fill_missing_search_policy(state_actions, exchanged_actions, agent_1_name, agent_2_name)
+
+
+def has_episode_ended(
+        terminations: Dict[AgentName, bool],
+        truncations: Dict[AgentName, bool]
+) -> bool:
+    for _, termination in terminations.items():
+        terminated = termination
+        if terminated:
+            return True
+    else:
+        for _, truncation in truncations.items():
+            truncated = truncation
+            if truncated:
+                return True
+    return False
+
+
+def get_greedy_actions(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        observations: Dict[AgentName, Observation]
+) -> Dict[AgentName, int]:
+    greedy_actions = {}
+    for agent_name, observation in observations.items():
+        greedy_actions[agent_name] = int(
+            np.argmax(
+                get_action_values(
+                    state_actions,
+                    exchanged_actions,
+                    agent_name,
+                    observation["agent_location"],
+                    observation["food_locations"],
+                    observation["carrying_food"],
+                )
+            )
+        )
+
+    return greedy_actions
+
+
+def get_epsilon_greedy_actions(
+        state_actions: StateActions,
+        exchanged_actions: ExchangedActions,
+        observations: Dict[AgentName, Observation],
+        epsilon: float,
+        rng: Generator
+) -> Dict[AgentName, int]:
+    epsilon_greedy_actions = {}
+    for agent_name, observation in observations.items():
+        if rng.random() > epsilon:
+            epsilon_greedy_actions[agent_name] = int(
+                np.argmax(
+                    get_action_values(
+                        state_actions,
+                        exchanged_actions,
+                        agent_name,
+                        observation["agent_location"],
+                        observation["food_locations"],
+                        observation["carrying_food"],
+                    )
+                )
+            )
+        else:
+            epsilon_greedy_actions[agent_name] = rng.integers(0, ACTION_COUNT)
+
+    return epsilon_greedy_actions
+
+
+def train() -> Tuple[StateActions, ExchangedActions, List[Episode]]:
     env = ScavengingAntEnv(
-        render_mode=None,
         seed=SEED,
         grid_width=GRID_WIDTH,
         grid_height=GRID_HEIGHT,
         agent_count=AGENT_COUNT,
         food_count=FOOD_COUNT,
         obstacle_count=OBSTACLE_COUNT,
-        nest_count=NEST_COUNT,
-        agent_vision_radius=AGENT_VISION_RADIUS,
+        nest_count=NEST_COUNT
     )
 
-    q = {agent_name: defaultdict(lambda: np.zeros(env.action_space(agent_name).n)) for agent_name in env.agents}
-    episode_data = []
+    state_actions: StateActions = state_actions_factory()
+    exchanged_actions: ExchangedActions = exchanged_actions_factory()
+    episode_data: List[Episode] = []
 
     epsilon = EPSILON_START
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed=SEED)
     episode_progress_bar = tqdm(total=EPISODES, desc="Training")
 
     for episode in range(EPISODES):
         observations, _ = env.reset(seed=SEED)
-        observations = flatten_observations(observations)
-        terminated, truncated = False, False
+        terminations, truncations = {}, {}
+        current_episode: Episode = {
+            "steps": 0,
+            "rewards": {agent_name: 0 for agent_name in env.agent_names}
+        }
 
-        step_count = 0
-        proximity_count = 0
-        exchange_count = 0
-        total_rewards = {agent_name: 0 for agent_name in env.agents}
-
-        while not terminated and not truncated:
-            actions = {}
-            for agent_name, observation in observations.items():
-                if rng.random() > epsilon:
-                    actions[agent_name] = np.argmax(q[agent_name][observations[agent_name]])
-                else:
-                    actions[agent_name] = env.action_space(agent_name).sample()
-
-            new_observations, rewards, terminations, truncations, infos = env.step(actions)
-            new_observations = flatten_observations(new_observations)
+        while not has_episode_ended(terminations, truncations):
+            selected_actions = get_epsilon_greedy_actions(state_actions, exchanged_actions, observations, epsilon, rng)
+            new_observations, rewards, terminations, truncations, infos = env.step(selected_actions)
 
             for agent_name, reward in rewards.items():
-                total_rewards[agent_name] += reward
+                current_episode["rewards"][agent_name] += reward
 
-            for _, termination in terminations.items():
-                terminated = termination
-                if terminated:
-                    break
-            else:
-                for _, truncation in truncations.items():
-                    truncated = truncation
-                    if truncated:
-                        break
-
-            # Update the Q table for each agent.
             for agent_name, new_observation in new_observations.items():
-                observation = observations[agent_name]
-                action = actions[agent_name]
-                q[agent_name][observation][action] = q[agent_name][observation][action] + LEARNING_RATE_ALPHA * (
-                            rewards[agent_name] + DISCOUNT_FACTOR_GAMMA * np.max(q[agent_name][new_observation]) -
-                            q[agent_name][observation][action])
+                old_observation = observations[agent_name]
+                update_action_values(
+                    state_actions,
+                    exchanged_actions,
+                    agent_name,
+                    old_observation["carrying_food"],
+                    new_observation["carrying_food"],
+                    old_observation["agent_location"],
+                    new_observation["agent_location"],
+                    old_observation["food_locations"],
+                    new_observation["food_locations"],
+                    selected_actions[agent_name],
+                    rewards[agent_name]
+                )
 
-            in_proximity = False
-            exchanged = False
+            if AGENTS_EXCHANGE_INFO:
+                exchange(state_actions, exchanged_actions, new_observations)
 
-            for agent_name, info in infos.items():
-                nearby_agents = info["nearby_agents"]
-                if not in_proximity and len(nearby_agents) > 0:
-                    in_proximity = True
-
-                if AGENTS_EXCHANGE_INFO and exchange_count % EXCHANGE_DELAY == 0:
-                    for nearby_agent_name in nearby_agents:
-                        # Give the current agent observations from the nearby agent that it doesn't already have.
-                        for observation, actions in q[nearby_agent_name].items():
-                            if observation not in q[agent_name]:
-                                q[agent_name][observation] = deepcopy(actions)
-                                exchanged = True
-
-            if exchanged:
-                exchange_count = exchange_count + 1
-
-            if in_proximity:
-                proximity_count = proximity_count + 1
-
-            step_count = step_count + 1
+            current_episode["steps"] += 1
             observations = new_observations
 
         epsilon = max(epsilon - EPSILON_DECAY_RATE, 0.01)
-        episode_data.append({
-            "step_count": step_count,
-            "exchange_count": exchange_count,
-            "proximity_count": proximity_count,
-            "total_rewards": total_rewards
-        })
-
         episode_progress_bar.update(1)
+        episode_data.append(current_episode)
 
     episode_progress_bar.close()
-    env.close()
 
-    return q, episode_data
+    return state_actions, exchanged_actions, episode_data
 
-def draw_exchange_chart(episodes: list[int], exchange_count: list[int]):
-    plt.plot(episodes, exchange_count, color="blue")
-    plt.title("Exchange Count")
-    plt.xlabel("Episodes")
-    plt.show()
 
-def draw_proximity_chart(episodes: list[int], proximity_count: list[int]):
-    plt.plot(episodes, proximity_count, color="orange")
-    plt.title("Proximity Count")
-    plt.xlabel("Episodes")
-    plt.show()
+def draw_current_step(
+        env: ScavengingAntEnv,
+        exchanged_actions: ExchangedActions,
+        observations: Dict[AgentName, Observation],
+        selected_agent_index: int,
+        window: pygame.Surface,
+        window_size: (int, int),
+) -> None:
+    selected_agent_name = f"agent_{selected_agent_index}"
+    selected_agent_observation = observations[selected_agent_name]
 
-def draw_episode_steps_chart(episodes: list[int], episode_steps: list[int]):
-    plt.plot(episodes, episode_steps, color="green")
-    plt.title("Steps per Episode")
-    plt.xlabel("Episodes")
-    plt.show()
+    canvas = pygame.Surface(window_size)
+    env.draw(canvas)
 
-def draw_rewards_chart(episodes: list[int], total_rewards: list[dict[str, int]]):
-    episode_agent_rewards = {}
-    for _, agent_rewards in enumerate(total_rewards):
-        for agent_name, episode_reward in agent_rewards.items():
-            if episode_agent_rewards.get(agent_name) is None:
-                episode_agent_rewards[agent_name] = []
-            episode_agent_rewards[agent_name].append(episode_reward)
+    food_locations = selected_agent_observation["food_locations"]
+    carrying_food = selected_agent_observation["carrying_food"]
 
-    for agent_name, episode_rewards in episode_agent_rewards.items():
-        plt.plot(episodes, episode_rewards, label=agent_name)
+    for row in range(GRID_HEIGHT):
+        for column in range(GRID_WIDTH):
+            agent_position = (column, row)
+            action_values = get_action_values(
+                state_actions,
+                exchanged_actions,
+                selected_agent_name,
+                agent_position,
+                food_locations,
+                carrying_food
+            )
 
-    plt.title("Rewards per Episode")
-    plt.xlabel("Episodes")
-    plt.legend()
-    plt.show()
+            image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
+            rotation = ACTION_ROTATIONS[int(np.argmax(action_values))]
+            position = (
+                column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
+                row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
+            )
+            image = pygame.transform.rotate(image, rotation)
+            canvas.blit(image, position)
 
-def validate():
-    """
-    Creates a visual representation of the Q-learning agents' learned policies.
-    Agents will take the action they found to be optimal at each step.
-    Users can toggle auto running with the "A" key.
-    Users can alternate between agent policy visualizations with the "S" key.
-    Users can progress a single step at a time with the "SPACE" key.
-    """
+    window.blit(canvas, canvas.get_rect())
+    pygame.event.pump()
+    pygame.display.flip()
+
+
+def visualize(state_actions: StateActions, exchanged_actions: ExchangedActions) -> None:
     env = ScavengingAntEnv(
-        render_mode="human",
         seed=SEED,
         grid_width=GRID_WIDTH,
         grid_height=GRID_HEIGHT,
@@ -309,9 +389,7 @@ def validate():
         food_count=FOOD_COUNT,
         obstacle_count=OBSTACLE_COUNT,
         nest_count=NEST_COUNT,
-        square_pixel_width=SQUARE_PIXEL_WIDTH,
-        render_fps=RENDER_FPS,
-        agent_vision_radius=AGENT_VISION_RADIUS,
+        square_pixel_width=SQUARE_PIXEL_WIDTH
     )
 
     pygame.init()
@@ -328,67 +406,42 @@ def validate():
     auto_run_enabled = False
     switching_auto_run = False
     running = True
-    stepping_enabled = True
+    stepping_enabled = False
     stepping = False
 
     while running:
-        # Visualize trained model.
-        observations, info = env.reset(seed=SEED)
-        observations = flatten_observations(observations)
+        observations, _ = env.reset(seed=SEED)
+        terminations, truncations = {}, {}
 
-        terminated = False
-        truncated = False
+        draw_current_step(
+            env,
+            exchanged_actions,
+            observations,
+            selected_agent_index,
+            window,
+            window_size
+        )
 
-        while not terminated and not truncated:
+        while running and not has_episode_ended(terminations, truncations):
             draw_next_step = auto_run_enabled and run_interval_time == 0
-            draw_next_step = draw_next_step or stepping_enabled and not stepping
+            draw_next_step = draw_next_step or (stepping_enabled and not stepping)
 
             if draw_next_step:
                 stepping = True
+                selected_actions = get_greedy_actions(state_actions, exchanged_actions, observations)
+                observations, rewards, terminations, truncations, info = env.step(selected_actions)
 
-                actions = {agent_name: np.argmax(q[agent_name][observations[agent_name]]) for agent_name in env.agents}
-                observations, rewards, terminations, truncations, info = env.step(actions)
-                selected_agent_name = f"agent_{selected_agent_index}"
-                selected_agent_observation = observations[selected_agent_name]
-
-                canvas = pygame.Surface(window_size)
-                env.draw(canvas)
-
-                for row in range(GRID_HEIGHT):
-                    for column in range(GRID_WIDTH):
-                        grid_observation = deepcopy(selected_agent_observation)
-                        grid_observation["agent_position"] = (column, row)
-                        grid_observation = flatten_observation(grid_observation)
-                        actions = q[selected_agent_name].get(grid_observation)
-
-                        if actions is not None:
-                            image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
-                            rotation = get_rotation_from_action(int(np.argmax(actions)))
-                            position = (
-                                column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
-                                row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
-                            )
-                            image = pygame.transform.rotate(image, rotation)
-                            canvas.blit(image, position)
-
-                observations = flatten_observations(observations)
-                for _, termination in terminations.items():
-                    terminated = termination
-                    if terminated:
-                        break
-                else:
-                    for _, truncation in truncations.items():
-                        truncated = truncation
-                        if truncated:
-                            break
-
-                window.blit(canvas, canvas.get_rect())
-                pygame.event.pump()
-                pygame.display.flip()
+                draw_current_step(
+                    env,
+                    exchanged_actions,
+                    observations,
+                    selected_agent_index,
+                    window,
+                    window_size
+                )
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    terminated = True
                     running = False
                     break
             else:
@@ -415,7 +468,7 @@ def validate():
                         stepping_enabled = False
                         stepping = False
 
-            delta_time = clock.tick(env.render_fps) / 1000
+            delta_time = clock.tick(60) / 1000
             if auto_run_enabled:
                 run_interval_time += delta_time
                 if run_interval_time >= SECONDS_BETWEEN_AUTO_STEP:
@@ -424,49 +477,75 @@ def validate():
     pygame.display.quit()
     pygame.quit()
 
-if __name__ == "__main__":
-    file_name = (
-        f"{LEARNING_RATE_ALPHA}_"
-        f"{DISCOUNT_FACTOR_GAMMA}_"
-        f"{EPSILON_DECAY_RATE}_"
-        f"{EPISODES}_"
-        f"{SEED}_"
-        f"{GRID_WIDTH}_"
-        f"{GRID_HEIGHT}_"
-        f"{AGENT_COUNT}_"
-        f"{FOOD_COUNT}_"
-        f"{NEST_COUNT}_"
-        f"{OBSTACLE_COUNT}_"
-        f"{AGENT_VISION_RADIUS}_"
-        f"{AGENTS_EXCHANGE_INFO}_"
-        f"{EXCHANGE_DELAY}"
-    )
 
-    os.makedirs(name="../tests/q_learning_models", exist_ok=True)
-    os.makedirs(name="../tests/q_learning_episodes", exist_ok=True)
+def plot_episode_data(episode_data: List[Episode]) -> None:
+    episode_data = sparsify(episode_data)
+    episodes = [episode * SPARSE_INTERVAL for episode in range(len(episode_data))]
+
+    episode_steps = []
+    episode_rewards = []
+
+    for episode in episode_data:
+        episode_steps.append(episode["steps"])
+        episode_rewards.append(episode["rewards"])
+
+    plt.plot(episodes, episode_steps, color="green")
+    plt.title(f"Steps {"With" if AGENTS_EXCHANGE_INFO else "Without"} Exchange")
+    plt.xlabel("Episodes")
+    plt.show()
+
+    episode_agent_rewards = {}
+    for _, agent_rewards in enumerate(episode_rewards):
+        for agent_name, episode_reward in agent_rewards.items():
+            if episode_agent_rewards.get(agent_name) is None:
+                episode_agent_rewards[agent_name] = []
+            episode_agent_rewards[agent_name].append(episode_reward)
+    for agent_name, episode_rewards in episode_agent_rewards.items():
+        plt.plot(episodes, episode_rewards, label=agent_name)
+
+    plt.title(f"Rewards {"With" if AGENTS_EXCHANGE_INFO else "Without"} Exchange")
+    plt.xlabel("Episodes")
+    plt.legend()
+    plt.show()
+
+
+def get_state_use_count(
+        dictionary: DefaultDict,
+        total_exchanges: int = 0,
+        used_count: int = 0
+) -> Tuple[int, int]:
+    for value in dictionary.values():
+        if isinstance(value, bool):
+            total_exchanges += 1
+            if value is True:
+                used_count += 1
+        elif isinstance(value, defaultdict):
+            total_exchanges, used_count = get_state_use_count(value, total_exchanges, used_count)
+
+    return total_exchanges, used_count
+
+
+def plot_exchanges(total_exchanges: int = 0, states_used: int = 0) -> None:
+    plt.bar(["Total", "Used"], [total_exchanges, states_used])
+    plt.title(f"Exchange Use Rate {100 * states_used / max(1, total_exchanges)}%")
+    plt.ylabel("Exchange Count")
+    plt.show()
+
+
+if __name__ == "__main__":
+    os.makedirs(name=SAVE_DIRECTORY, exist_ok=True)
 
     try:
-        q = load_q(file_name)
-        episode_data = load_episode_data(file_name)
-
+        state_actions, exchanged_actions, episode_data = load_data()
     except FileNotFoundError:
-        q, episode_data = train()
-        save_q(file_name, q)
-        save_episode_data(file_name, episode_data)
+        state_actions, exchanged_actions, episode_data = train()
+        if SAVE_AFTER_TRAINING:
+            save_data(state_actions, exchanged_actions, episode_data)
 
-    episodes, episode_steps, exchange_count, proximity_count, total_rewards = sparse_episode_data(episode_data)
+    plot_episode_data(episode_data)
+    exchanged_actions: DefaultDict = exchanged_actions
+    total_exchanges, states_used = get_state_use_count(exchanged_actions)
+    plot_exchanges(total_exchanges, states_used)
 
-    if AGENTS_EXCHANGE_INFO:
-        if len(exchange_count) > 0:
-            draw_exchange_chart(episodes, exchange_count)
-
-    if len(proximity_count) > 0:
-        draw_proximity_chart(episodes, proximity_count)
-
-    if len(episode_steps) > 0:
-        draw_episode_steps_chart(episodes, episode_steps)
-
-    if len(total_rewards) > 0:
-        draw_rewards_chart(episodes, total_rewards)
-
-    validate()
+    if SHOW_AFTER_TRAINING:
+        visualize(state_actions, exchanged_actions)

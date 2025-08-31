@@ -1,29 +1,47 @@
-type FoodPositions = tuple[int, ...]
-type AgentLocation = tuple[int, int]
-type Actions = list[int, ...]
-type AgentName = str
-type EpisodeData = {
-    "steps": [int],
-    "rewards": [{AgentName: float}]
-}
-type StateActions = {
-    "return_policy": {
-        AgentName: {
-            AgentLocation: Actions
-        }
-    },
-    "search_policy": {
-        AgentName: {
-            AgentLocation: {
-                FoodPositions: Actions
-            }
-        }
-    }
-}
-type Observation = {
-    "agent_position": tuple[int, int],
-    "carrying_food": bool,
-    "carried_food": tuple[int, ...],
-    "food_positions": tuple[int, ...],
-    "agent_detected": bool
-}
+from typing import List, Tuple, TypeAlias, Dict, TypedDict, DefaultDict
+
+Used: TypeAlias = bool or None
+AgentName: TypeAlias = str
+Location: TypeAlias = Tuple[int, int]
+FoodLocations: TypeAlias = Tuple[Location, ...]
+Actions: TypeAlias = List[float]
+
+
+class Episode(TypedDict):
+    steps: int
+    rewards: Dict[AgentName, int]
+
+
+class StateActions(TypedDict):
+    return_policy: DefaultDict[AgentName, DefaultDict[Location, Actions]]
+    search_policy: DefaultDict[AgentName, DefaultDict[Location, DefaultDict[FoodLocations, Actions]]]
+
+
+class ExchangedActions(TypedDict):
+    return_policy: Dict[AgentName, Dict[Location, Used]]
+    search_policy: Dict[AgentName, Dict[Location, Dict[FoodLocations, Used]]]
+
+
+class Observation(TypedDict):
+    agent_location: Location
+    carrying_food: bool
+    food_locations: FoodLocations
+
+
+class Food(TypedDict):
+    location: Location
+    carried: bool
+    hidden: bool
+
+
+class Nest(TypedDict):
+    location: Location
+
+
+class Agent(TypedDict):
+    location: Location
+    carried_food: Food | None
+
+
+class Obstacle(TypedDict):
+    location: Location
