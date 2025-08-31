@@ -171,8 +171,7 @@ class ScavengingAntEnv:
                             reward += 100 # Reward the agent for picking up food.
                             break
                     else:
-                        # Penalize the agent for taking a step without picking up food.
-                        reward -= 1
+                        reward -= 1 # Penalize the agent for taking a step without picking up food.
                 else:
                     carried_food["location"] = new_location
 

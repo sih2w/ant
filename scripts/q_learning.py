@@ -510,14 +510,14 @@ def plot_episode_data(episode_data: List[Episode]) -> None:
 
 
 def get_state_use_count(
-        dictionary: DefaultDict,
-        total_exchanges: int = 0,
-        used_count: int = 0
+    dictionary: DefaultDict[Any, Any],
+    total_exchanges: int = 0,
+    used_count: int = 0
 ) -> Tuple[int, int]:
     for value in dictionary.values():
         if isinstance(value, bool):
             total_exchanges += 1
-            if value is True:
+            if value:
                 used_count += 1
         elif isinstance(value, defaultdict):
             total_exchanges, used_count = get_state_use_count(value, total_exchanges, used_count)
@@ -542,10 +542,11 @@ if __name__ == "__main__":
         if SAVE_AFTER_TRAINING:
             save_data(state_actions, exchanged_actions, episode_data)
 
-    plot_episode_data(episode_data)
-    exchanged_actions: DefaultDict = exchanged_actions
+    exchanged_actions: DefaultDict[Any, Any] = exchanged_actions
     total_exchanges, states_used = get_state_use_count(exchanged_actions)
+
     plot_exchanges(total_exchanges, states_used)
+    plot_episode_data(episode_data)
 
     if SHOW_AFTER_TRAINING:
         visualize(state_actions, exchanged_actions)
