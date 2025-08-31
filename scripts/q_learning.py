@@ -1,3 +1,4 @@
+import math
 from typing import Any
 import dill
 import os
@@ -17,10 +18,10 @@ DISCOUNT_FACTOR_GAMMA = 0.70
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
 AGENTS_EXCHANGE_INFO = True
-GRID_WIDTH = 20
+GRID_WIDTH = 15
 GRID_HEIGHT = 10
 AGENT_COUNT = 2
-FOOD_COUNT = 10
+FOOD_COUNT = 5
 OBSTACLE_COUNT = 10
 NEST_COUNT = 1
 AGENT_VISION_RADIUS = 1
@@ -60,8 +61,8 @@ def state_actions_factory() -> StateActions:
 
 def exchanged_actions_factory() -> ExchangedActions:
     return {
-        "return_policy": defaultdict(lambda: defaultdict(lambda: False)),
-        "search_policy": defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: False))),
+        "return_policy": defaultdict(lambda: defaultdict(lambda: None)),
+        "search_policy": defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: None))),
     }
 
 
@@ -100,13 +101,13 @@ def get_action_values(
         carrying_food: bool,
 ) -> Actions:
     if carrying_food:
-        if exchanged_actions:
+        if AGENTS_EXCHANGE_INFO:
             used = exchanged_actions["return_policy"][agent_name][agent_location]
             if used is False:
                 exchanged_actions["return_policy"][agent_name][agent_location] = True
         return state_actions["return_policy"][agent_name][agent_location]
     else:
-        if exchanged_actions:
+        if AGENTS_EXCHANGE_INFO:
             used = exchanged_actions["search_policy"][agent_name][agent_location][food_locations]
             if used is False:
                 exchanged_actions["search_policy"][agent_name][agent_location][food_locations] = True
@@ -138,7 +139,10 @@ def are_close_enough(
         agent_1_location: Location,
         agent_2_location: Location
 ) -> bool:
-    return np.array_equal(agent_1_location, agent_2_location)
+    dx = agent_1_location[0] - agent_2_location[0]
+    dy = agent_1_location[1] - agent_2_location[1]
+    distance = math.floor(math.hypot(dx, dy))
+    return distance <= AGENT_VISION_RADIUS
 
 
 def fill_missing_search_policy(
