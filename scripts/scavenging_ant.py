@@ -1,6 +1,7 @@
 from __future__ import annotations
 import math
 from scripts.types import *
+from scripts.utils import *
 import numpy as np
 import pygame
 
@@ -33,9 +34,7 @@ class ScavengingAntEnv:
         self.__random = np.random.default_rng(seed)
         self.__step_count = 0
 
-        agent_count = max(1, min(agent_count, 3))
         self.agent_names = [f"agent_{index}" for index in range(agent_count)]
-
         for agent_name in self.agent_names:
             self.__agents[agent_name] = {
                 "location": (-1, -1),
@@ -228,9 +227,16 @@ class ScavengingAntEnv:
             )
             canvas.blit(image, position)
 
+    def get_agent_color(self, agent_name: AgentName):
+        agent_index = self.agent_names.index(agent_name)
+        color = pygame.Color(0)
+        color.hsla = (360 / (agent_index + 1), 100, 50, 100)
+        return color
+
     def __draw_agents(self, canvas):
         for agent_name, agent in self.__agents.items():
-            image = pygame.image.load(f"../images/ants/{agent_name}.png")
+            image = pygame.image.load(f"../images/icons8-ant-48.png")
+            image = change_image_color(image, self.get_agent_color(agent_name))
             position = agent["location"]
             position = (
                 position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,

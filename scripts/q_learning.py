@@ -4,12 +4,12 @@ import dill
 import os
 from collections import defaultdict
 import numpy as np
-import pygame
 import matplotlib.pyplot as plt
 from numpy.random import Generator
 from scripts.scavenging_ant import ScavengingAntEnv
 from tqdm import tqdm
 from scripts.types import *
+from scripts.utils import *
 
 EPISODES = 1000
 SEED = 2
@@ -31,6 +31,7 @@ RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.10
 ACTION_COUNT = 4
 SPARSE_INTERVAL = int(EPISODES / 100)
+DRAW_ARROWS = True
 SAVE_AFTER_TRAINING = True
 SHOW_AFTER_TRAINING = True
 ACTION_ROTATIONS = (180, 0, 90, -90)
@@ -341,7 +342,7 @@ def train() -> Tuple[StateActions, ExchangedActions, List[Episode]]:
     return state_actions, exchanged_actions, episode_data
 
 
-def draw_current_step(
+def draw(
         env: ScavengingAntEnv,
         exchanged_actions: ExchangedActions,
         observations: Dict[AgentName, Observation],
@@ -349,35 +350,37 @@ def draw_current_step(
         window: pygame.Surface,
         window_size: (int, int),
 ) -> None:
-    selected_agent_name = f"agent_{selected_agent_index}"
-    selected_agent_observation = observations[selected_agent_name]
-
     canvas = pygame.Surface(window_size)
     env.draw(canvas)
 
-    food_locations = selected_agent_observation["food_locations"]
-    carrying_food = selected_agent_observation["carrying_food"]
+    if DRAW_ARROWS:
+        selected_agent_name = f"agent_{selected_agent_index}"
+        selected_agent_observation = observations[selected_agent_name]
 
-    for row in range(GRID_HEIGHT):
-        for column in range(GRID_WIDTH):
-            agent_position = (column, row)
-            action_values = get_action_values(
-                state_actions,
-                exchanged_actions,
-                selected_agent_name,
-                agent_position,
-                food_locations,
-                carrying_food
-            )
+        food_locations = selected_agent_observation["food_locations"]
+        carrying_food = selected_agent_observation["carrying_food"]
 
-            image = pygame.image.load(f"../images/arrows/{selected_agent_name}.png")
-            rotation = ACTION_ROTATIONS[int(np.argmax(action_values))]
-            position = (
-                column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
-                row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
-            )
-            image = pygame.transform.rotate(image, rotation)
-            canvas.blit(image, position)
+        for row in range(GRID_HEIGHT):
+            for column in range(GRID_WIDTH):
+                agent_position = (column, row)
+                action_values = get_action_values(
+                    state_actions,
+                    exchanged_actions,
+                    selected_agent_name,
+                    agent_position,
+                    food_locations,
+                    carrying_food
+                )
+
+                image = pygame.image.load(f"../images/icons8-triangle-48.png")
+                image = change_image_color(image, env.get_agent_color(selected_agent_name))
+                rotation = ACTION_ROTATIONS[int(np.argmax(action_values))]
+                position = (
+                    column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
+                    row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
+                )
+                image = pygame.transform.rotate(image, rotation)
+                canvas.blit(image, position)
 
     window.blit(canvas, canvas.get_rect())
     pygame.event.pump()
@@ -398,7 +401,7 @@ def visualize(state_actions: StateActions, exchanged_actions: ExchangedActions) 
 
     pygame.init()
     pygame.display.set_caption("Q-Learning Ants")
-    pygame.display.set_icon(pygame.image.load("../images/icons8-ant-30.png"))
+    pygame.display.set_icon(pygame.image.load("../images/icons8-ant-48.png"))
 
     window_size = env.get_window_size()
     window = pygame.display.set_mode(window_size)
@@ -417,7 +420,7 @@ def visualize(state_actions: StateActions, exchanged_actions: ExchangedActions) 
         observations, _ = env.reset(seed=SEED)
         terminations, truncations = {}, {}
 
-        draw_current_step(
+        draw(
             env,
             exchanged_actions,
             observations,
@@ -435,7 +438,7 @@ def visualize(state_actions: StateActions, exchanged_actions: ExchangedActions) 
                 selected_actions = get_greedy_actions(state_actions, exchanged_actions, observations)
                 observations, rewards, terminations, truncations, info = env.step(selected_actions)
 
-                draw_current_step(
+                draw(
                     env,
                     exchanged_actions,
                     observations,
