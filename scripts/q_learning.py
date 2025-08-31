@@ -6,21 +6,21 @@ from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.random import Generator
-from scripts.scavenging_ant import ScavengingAntEnv
+from scripts.scavenging_ant import ScavengingAntEnv, ACTION_ROTATIONS
 from tqdm import tqdm
 from scripts.types import *
 from scripts.utils import *
 
 EPISODES = 1000
-SEED = 2
+SEED = 3
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.70
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
-AGENTS_EXCHANGE_INFO = True
+AGENTS_EXCHANGE_INFO = False
 GRID_WIDTH = 15
 GRID_HEIGHT = 10
-AGENT_COUNT = 2
+AGENT_COUNT = 10
 FOOD_COUNT = 5
 OBSTACLE_COUNT = 10
 NEST_COUNT = 1
@@ -29,12 +29,11 @@ AGENT_VISION_RADIUS = 2
 SQUARE_PIXEL_WIDTH = 40
 RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.10
-ACTION_COUNT = 4
+ACTION_COUNT = len(ACTION_ROTATIONS)
 SPARSE_INTERVAL = int(EPISODES / 100)
 DRAW_ARROWS = True
 SAVE_AFTER_TRAINING = True
 SHOW_AFTER_TRAINING = True
-ACTION_ROTATIONS = (180, 0, 90, -90)
 SAVE_DIRECTORY = "../runs/q_learning"
 FILE_NAME = (
     f"{LEARNING_RATE_ALPHA}_"

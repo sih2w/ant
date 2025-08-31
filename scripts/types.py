@@ -41,6 +41,7 @@ class Nest(TypedDict):
 class Agent(TypedDict):
     location: Location
     carried_food: Food | None
+    last_action: int
 
 
 class Obstacle(TypedDict):

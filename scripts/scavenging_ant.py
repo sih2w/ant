@@ -6,6 +6,7 @@ import numpy as np
 import pygame
 
 AGENT_ACTIONS = ((0, 1), (0, -1), (-1, 0), (1, 0))
+ACTION_ROTATIONS = (180, 0, 90, -90)
 
 class ScavengingAntEnv:
     def __init__(
@@ -38,7 +39,8 @@ class ScavengingAntEnv:
         for agent_name in self.agent_names:
             self.__agents[agent_name] = {
                 "location": (-1, -1),
-                "carried_food": None
+                "carried_food": None,
+                "last_action": 0
             }
 
         for _ in range(self.__nest_count):
@@ -113,6 +115,7 @@ class ScavengingAntEnv:
         for _, agent in self.__agents.items():
             agent["location"] = (-1, -1)
             agent["carried_food"] = None
+            agent["last_action"] = 0
 
         self.__step_count = 0
         self.__random = np.random.default_rng(seed=seed)
@@ -191,7 +194,9 @@ class ScavengingAntEnv:
     def step(self, selected_actions: Dict[AgentName, int]):
         rewards: Dict[AgentName, int] = {}
         for agent_name, agent in self.__agents.items():
-            rewards[agent_name] = self.__update_agent(agent, selected_actions[agent_name])
+            action = selected_actions[agent_name]
+            rewards[agent_name] = self.__update_agent(agent, action)
+            agent["last_action"] = action
 
         all_food_hidden = True
         for food in self.__food:
@@ -237,6 +242,8 @@ class ScavengingAntEnv:
         for agent_name, agent in self.__agents.items():
             image = pygame.image.load(f"../images/icons8-ant-48.png")
             image = change_image_color(image, self.get_agent_color(agent_name))
+            rotation = ACTION_ROTATIONS[agent["last_action"]]
+            image = pygame.transform.rotate(image, rotation)
             position = agent["location"]
             position = (
                 position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
