@@ -113,7 +113,7 @@ class ScavengingAntEnv:
 
         return observations
 
-    def reset(self, seed: int = None):
+    def reset(self):
         for obstacle in self.__obstacles:
             obstacle["location"] = obstacle["spawn_location"]
 
