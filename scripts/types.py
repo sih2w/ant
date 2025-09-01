@@ -12,14 +12,15 @@ class Episode(TypedDict):
     rewards: Dict[AgentName, int]
 
 
+class Policy(TypedDict):
+    actions: Actions
+    used: bool
+    given: bool
+
+
 class StateActions(TypedDict):
-    return_policy: DefaultDict[AgentName, DefaultDict[Location, Actions]]
-    search_policy: DefaultDict[AgentName, DefaultDict[Location, DefaultDict[FoodLocations, Actions]]]
-
-
-class ExchangedActions(TypedDict):
-    return_policy: Dict[AgentName, Dict[Location, Used]]
-    search_policy: Dict[AgentName, Dict[Location, Dict[FoodLocations, Used]]]
+    returning: DefaultDict[AgentName, DefaultDict[Location, Policy]]
+    searching: DefaultDict[AgentName, DefaultDict[Location, DefaultDict[FoodLocations, Policy]]]
 
 
 class Observation(TypedDict):
