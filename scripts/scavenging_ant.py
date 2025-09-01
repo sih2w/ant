@@ -32,52 +32,65 @@ class ScavengingAntEnv:
         self.__nests: List[Nest] = []
         self.__agents: Dict[str, Agent] = {}
 
-        self.__random = np.random.default_rng(seed)
-        self.__step_count = 0
+        random = np.random.default_rng(seed)
+        excluded_locations = []
 
         self.agent_names = [f"agent_{index}" for index in range(agent_count)]
+
         for agent_name in self.agent_names:
+            location = self.__get_new_random_location(excluded_locations, random)
+            excluded_locations.append(location)
             self.__agents[agent_name] = {
-                "location": (-1, -1),
+                "location": location,
                 "carried_food": None,
-                "last_action": 0
+                "last_action": 0,
+                "spawn_location": location,
             }
 
         for _ in range(self.__nest_count):
+            location = self.__get_new_random_location(excluded_locations, random)
+            excluded_locations.append(location)
             self.__nests.append({
-                "location": (-1, -1)
+                "location": location,
+                "spawn_location": location,
             })
 
         for _ in range(self.__food_count):
+            location = self.__get_new_random_location(excluded_locations, random)
+            excluded_locations.append(location)
             self.__food.append({
-                "location": (-1, -1),
+                "location": location,
                 "carried": False,
-                "hidden": False
+                "hidden": False,
+                "spawn_location": location,
             })
 
         for index in range(self.__obstacle_count):
+            location = self.__get_new_random_location(excluded_locations, random)
+            excluded_locations.append(location)
             self.__obstacles.append({
-                "location": (-1, -1),
+                "location": location,
+                "spawn_location": location,
             })
 
-    def __get_random_location(self) -> Location:
+    def __get_random_location(self, random: np.random.Generator) -> Location:
         return (
-            int(self.__random.integers(0, self.__grid_width)),
-            int(self.__random.integers(0, self.__grid_height))
+            int(random.integers(0, self.__grid_width)),
+            int(random.integers(0, self.__grid_height))
         )
 
-    def __get_new_random_location(self, excluded_locations: List[Location]) -> Location:
+    def __get_new_random_location(self, excluded_locations: List[Location], random: np.random.Generator) -> Location:
         excluded = np.asarray(excluded_locations, dtype=np.int16)
         if excluded.size == 0:
-            return self.__get_random_location()
+            return self.__get_random_location(random)
 
         attempts = 100
         for _ in range(attempts):
-            position = self.__get_random_location()
+            position = self.__get_random_location(random)
             if not np.any(np.all(excluded == position, axis=1)):
                 return position
 
-        return self.__get_random_location()
+        return self.__get_random_location(random)
 
     @staticmethod
     def __get_observation(agent: Agent, food_locations: FoodLocations) -> Observation:
@@ -102,44 +115,20 @@ class ScavengingAntEnv:
 
     def reset(self, seed: int = None):
         for obstacle in self.__obstacles:
-            obstacle["location"] = (-1, -1)
+            obstacle["location"] = obstacle["spawn_location"]
 
         for nest in self.__nests:
-            nest["location"] = (-1, -1)
+            nest["location"] = nest["spawn_location"]
 
         for food in self.__food:
             food["hidden"] = False
             food["carried"] = False
-            food["location"] = (-1, -1)
+            food["location"] = food["spawn_location"]
 
         for _, agent in self.__agents.items():
-            agent["location"] = (-1, -1)
+            agent["location"] = agent["spawn_location"]
             agent["carried_food"] = None
             agent["last_action"] = 0
-
-        self.__step_count = 0
-        self.__random = np.random.default_rng(seed=seed)
-
-        excluded_locations = []
-        for obstacle in self.__obstacles:
-            location = self.__get_new_random_location(excluded_locations)
-            excluded_locations.append(location)
-            obstacle["location"] = location
-
-        for nest in self.__nests:
-            location = self.__get_new_random_location(excluded_locations)
-            excluded_locations.append(location)
-            nest["location"] = location
-
-        for food in self.__food:
-            location = self.__get_new_random_location(excluded_locations)
-            excluded_locations.append(location)
-            food["location"] = location
-
-        for _, agent in self.__agents.items():
-            location = self.__get_new_random_location(excluded_locations)
-            excluded_locations.append(location)
-            agent["location"] = location
 
         return self.__get_observations(), {}
 
@@ -218,9 +207,6 @@ class ScavengingAntEnv:
             truncations,
             {}
         )
-
-    def get_step_count(self):
-        return self.__step_count
 
     def __draw_nests(self, canvas):
         for nest in self.__nests:

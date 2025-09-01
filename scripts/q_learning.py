@@ -11,27 +11,27 @@ from tqdm import tqdm
 from scripts.types import *
 from scripts.utils import *
 
-EPISODES = 100
-SEED = 3
+EPISODES = 1000
+SEED = 5
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.70
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
-AGENTS_EXCHANGE_INFO = True
-GRID_WIDTH = 10
-GRID_HEIGHT = 10
+AGENTS_EXCHANGE_INFO = False
+GRID_WIDTH = 20
+GRID_HEIGHT = 15
 AGENT_COUNT = 2
 FOOD_COUNT = 10
 OBSTACLE_COUNT = 10
 NEST_COUNT = 1
-AGENT_VISION_RADIUS = 2
+AGENT_VISION_RADIUS = 0
 
 SQUARE_PIXEL_WIDTH = 40
 RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.10
 ACTION_COUNT = len(ACTION_ROTATIONS)
 SPARSE_INTERVAL = int(EPISODES / 100)
-DRAW_ARROWS = True
+DRAW_ARROWS = False
 SAVE_AFTER_TRAINING = True
 SHOW_AFTER_TRAINING = True
 SAVE_DIRECTORY = "../runs/q_learning"
@@ -453,7 +453,7 @@ def visualize(state_actions: StateActions) -> None:
                         stepping_enabled = False
                         stepping = False
 
-            delta_time = clock.tick(60) / 1000
+            delta_time = clock.tick(RENDER_FPS) / 1000
             if auto_run_enabled:
                 run_interval_time += delta_time
                 if run_interval_time >= SECONDS_BETWEEN_AUTO_STEP:
@@ -501,8 +501,8 @@ def get_search_exchanges(state_actions: StateActions) -> Tuple[int, int]:
             for food_locations, policy in food_locations_to_policy.items():
                 if policy["given"]:
                     given_count += 1
-                if policy["used"]:
-                    used_count += 1
+                    if policy["used"]:
+                        used_count += 1
 
     return given_count, used_count
 
@@ -513,8 +513,8 @@ def get_return_exchanges(state_actions: StateActions) -> Tuple[int, int]:
         for agent_location, policy in agent_location_to_policy.items():
             if policy["given"]:
                 given_count += 1
-            if policy["used"]:
-                used_count += 1
+                if policy["used"]:
+                    used_count += 1
 
     return given_count, used_count
 

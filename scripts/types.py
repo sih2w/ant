@@ -33,17 +33,21 @@ class Food(TypedDict):
     location: Location
     carried: bool
     hidden: bool
+    spawn_location: Location
 
 
 class Nest(TypedDict):
     location: Location
+    spawn_location: Location
 
 
 class Agent(TypedDict):
     location: Location
     carried_food: Food | None
     last_action: int
+    spawn_location: Location
 
 
 class Obstacle(TypedDict):
     location: Location
+    spawn_location: Location
