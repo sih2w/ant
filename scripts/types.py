@@ -48,6 +48,7 @@ class Agent(TypedDict):
     spawn_location: Location
     carry_capacity: int
 
+
 class Obstacle(TypedDict):
     location: Location
     spawn_location: Location

@@ -107,7 +107,8 @@ class ScavengingAntEnv:
         food_locations = []
 
         for food in self.__food:
-            food_locations.append(food["location"])
+            if not food["deposited"]:
+                food_locations.append(food["location"])
         food_locations = tuple(food_locations)
 
         for agent_name, agent in self.__agents.items():
@@ -189,15 +190,20 @@ class ScavengingAntEnv:
         if invalid_location:
             return -1000
 
+        reward = 0
         picked_up_food = self.__pickup_food(agent, new_location)
+        if picked_up_food:
+            reward += 4
+
         deposited_food = self.__deposit_food(agent, new_location)
-        interacted = picked_up_food or deposited_food
+        if deposited_food:
+            reward += 1
 
         agent["location"] = new_location
         for food in agent["carried_food"]:
             food["location"] = new_location
 
-        return 100 if interacted else -1
+        return reward if reward > 0 else -1
 
     def step(self, selected_actions: Dict[AgentName, int]):
         rewards: Dict[AgentName, int] = {}
