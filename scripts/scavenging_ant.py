@@ -18,7 +18,8 @@ class ScavengingAntEnv:
             food_count: int = 1,
             agent_count: int = 1,
             obstacle_count: int = 1,
-            seed: int = np.random.randint(1, 1000)
+            seed: int = np.random.randint(1, 1000),
+            carry_capacity: int = 1
     ):
         self.__grid_width = grid_width
         self.__grid_height = grid_height
@@ -42,9 +43,10 @@ class ScavengingAntEnv:
             excluded_locations.append(location)
             self.__agents[agent_name] = {
                 "location": location,
-                "carried_food": None,
+                "carried_food": [],
                 "last_action": 0,
                 "spawn_location": location,
+                "carry_capacity": carry_capacity,
             }
 
         for _ in range(self.__nest_count):
@@ -61,7 +63,7 @@ class ScavengingAntEnv:
             self.__food.append({
                 "location": location,
                 "carried": False,
-                "hidden": False,
+                "deposited": False,
                 "spawn_location": location,
             })
 
@@ -96,7 +98,7 @@ class ScavengingAntEnv:
     def __get_observation(agent: Agent, food_locations: FoodLocations) -> Observation:
         return {
             "agent_location": agent["location"],
-            "carrying_food": agent["carried_food"] is not None,
+            "carrying_food": len(agent["carried_food"]) > 0,
             "food_locations": food_locations,
         }
 
@@ -121,64 +123,81 @@ class ScavengingAntEnv:
             nest["location"] = nest["spawn_location"]
 
         for food in self.__food:
-            food["hidden"] = False
+            food["deposited"] = False
             food["carried"] = False
             food["location"] = food["spawn_location"]
 
         for _, agent in self.__agents.items():
             agent["location"] = agent["spawn_location"]
-            agent["carried_food"] = None
+            agent["carried_food"].clear()
             agent["last_action"] = 0
 
         return self.__get_observations(), {}
 
-    def __inside_grid(self, location: Location) -> bool:
-        return 0 <= location[0] < self.__grid_width and 0 <= location[1] < self.__grid_height
+    def __outside_grid(self, location: Location) -> bool:
+        return location[0] < 0 or location[0] >= self.__grid_width or location[1] < 0 or location[1] >= self.__grid_height
+
+    def __inside_obstacle(self, location: Location) -> bool:
+        for obstacle in self.__obstacles:
+            if location == obstacle["location"]:
+                return True
+        return False
+
+    def __pickup_food(self, agent: Agent, location: Location) -> bool:
+        if len(agent["carried_food"]) < agent["carry_capacity"]:
+            for food in self.__food:
+                can_pick_up = not food["deposited"]
+                can_pick_up = can_pick_up and not food["carried"]
+                can_pick_up = can_pick_up and food["location"] == location
+
+                if can_pick_up:
+                    agent["carried_food"].append(food)
+                    food["carried"] = True
+                    return True
+
+        return False
+
+    def __deposit_food(self, agent: Agent, location: Location) -> bool:
+        if len(agent["carried_food"]) > 0:
+            for nest in self.__nests:
+                if nest["location"] == location:
+                    for food in agent["carried_food"]:
+                        food["location"] = location
+                        food["carried"] = False
+                        food["deposited"] = True
+                    agent["carried_food"].clear()
+                    return True
+
+        return False
+
+    def __get_food_deposited(self) -> int:
+        deposited = 0
+        for food in self.__food:
+            if food["deposited"]:
+                deposited += 1
+        return deposited
 
     def __update_agent(self, agent: Agent, action: int):
-        old_location = agent["location"]
         direction = AGENT_ACTIONS[action]
+        old_location = agent["location"]
         new_location = (old_location[0] + direction[0], old_location[1] + direction[1])
-        reward = 0
 
-        for obstacle in self.__obstacles:
-            if new_location == obstacle["location"]:
-                reward -= 1000 # Penalize the agent if it attempted to move into an obstacle.
-                break
-        else:
-            if not self.__inside_grid(new_location):
-                reward -= 1000 # Penalize the agent if it attempted to move out of bounds.
-            else:
-                carried_food = agent["carried_food"]
-                if carried_food is None:
-                    for food in self.__food:
-                        can_pick_up = not food["hidden"]
-                        can_pick_up = can_pick_up and not food["carried"]
-                        can_pick_up = can_pick_up and food["location"] == new_location
+        outside_grid = self.__outside_grid(new_location)
+        inside_obstacle = self.__inside_obstacle(new_location)
+        invalid_location = outside_grid or inside_obstacle
 
-                        if can_pick_up:
-                            agent["carried_food"] = food
-                            food["carried"] = True
-                            reward += 100 # Reward the agent for picking up food.
-                            break
-                    else:
-                        reward -= 1 # Penalize the agent for taking a step without picking up food.
-                else:
-                    carried_food["location"] = new_location
+        if invalid_location:
+            return -1000
 
-                    for nest in self.__nests:
-                        if nest["location"] == new_location:
-                            agent["carried_food"] = None
-                            carried_food["hidden"] = True
-                            reward += 100 # Reward the agent for depositing food.
-                            break
-                    else:
-                        reward -= 1 # Penalize the agent for taking a step without depositing food in a nest.
+        picked_up_food = self.__pickup_food(agent, new_location)
+        deposited_food = self.__deposit_food(agent, new_location)
+        interacted = picked_up_food or deposited_food
 
-                # Move the agent to the new position if the position was valid.
-                agent["location"] = new_location
+        agent["location"] = new_location
+        for food in agent["carried_food"]:
+            food["location"] = new_location
 
-        return reward
+        return 100 if interacted else -1
 
     def step(self, selected_actions: Dict[AgentName, int]):
         rewards: Dict[AgentName, int] = {}
@@ -187,17 +206,12 @@ class ScavengingAntEnv:
             rewards[agent_name] = self.__update_agent(agent, action)
             agent["last_action"] = action
 
-        all_food_hidden = True
-        for food in self.__food:
-            all_food_hidden = food["hidden"]
-            if not all_food_hidden:
-                break
-
+        terminated = self.__get_food_deposited() == len(self.__food)
         terminations = {}
         truncations = {}
 
         for agent_name, agent in self.__agents.items():
-            terminations[agent_name] = all_food_hidden
+            terminations[agent_name] = terminated
             truncations[agent_name] = False
 
         return (
@@ -239,7 +253,7 @@ class ScavengingAntEnv:
 
     def __draw_food(self, canvas):
         for food in self.__food:
-            if not food["carried"]:
+            if not food["deposited"]:
                 image = pygame.image.load("../images/icons8-whole-apple-48.png")
                 position = food["location"]
                 position = (

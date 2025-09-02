@@ -12,25 +12,26 @@ from scripts.types import *
 from scripts.utils import *
 
 EPISODES = 1000
-SEED = 7
+SEED = 1
 LEARNING_RATE_ALPHA = 0.10
-DISCOUNT_FACTOR_GAMMA = 0.70
+DISCOUNT_FACTOR_GAMMA = 0.95
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
-AGENTS_EXCHANGE_INFO = True
+AGENTS_EXCHANGE_INFO = False
 GRID_WIDTH = 10
-GRID_HEIGHT = 8
-AGENT_COUNT = 2
+GRID_HEIGHT = 10
+AGENT_COUNT = 1
 FOOD_COUNT = 10
 OBSTACLE_COUNT = 10
 NEST_COUNT = 1
 AGENT_VISION_RADIUS = 10
+CARRY_CAPACITY = 5
 
 SQUARE_PIXEL_WIDTH = 40
 RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.10
 ACTION_COUNT = len(ACTION_ROTATIONS)
-SPARSE_INTERVAL = int(EPISODES / 100)
+SPARSE_INTERVAL = 1
 DRAW_ARROWS = False
 SAVE_AFTER_TRAINING = True
 SHOW_AFTER_TRAINING = True
@@ -49,6 +50,7 @@ FILE_NAME = (
     f"{OBSTACLE_COUNT}_"
     f"{AGENT_VISION_RADIUS}_"
     f"{AGENTS_EXCHANGE_INFO}"
+    f"f{CARRY_CAPACITY}"
 )
 
 
@@ -192,6 +194,7 @@ def fill_policy_gaps(
         fill_missing_return_policy(state_actions, agent_1_name, agent_2_name)
         fill_missing_search_policy(state_actions, agent_2_name, agent_1_name)
 
+
 def exchange(
         state_actions: StateActions,
         observations: Dict[AgentName, Observation]
@@ -201,8 +204,8 @@ def exchange(
         for index_2 in range(index_1 + 1, length):
             agent_1_name = f"agent_{index_1}"
             agent_2_name = f"agent_{index_2}"
-            agent_1_observation : Observation = observations[agent_1_name]
-            agent_2_observation : Observation = observations[agent_2_name]
+            agent_1_observation: Observation = observations[agent_1_name]
+            agent_2_observation: Observation = observations[agent_2_name]
 
             close_enough = are_close_enough(
                 agent_1_observation["agent_location"],
@@ -290,7 +293,8 @@ def train() -> Tuple[StateActions, List[Episode]]:
         agent_count=AGENT_COUNT,
         food_count=FOOD_COUNT,
         obstacle_count=OBSTACLE_COUNT,
-        nest_count=NEST_COUNT
+        nest_count=NEST_COUNT,
+        carry_capacity=CARRY_CAPACITY,
     )
 
     state_actions: StateActions = state_actions_factory()
@@ -397,7 +401,8 @@ def visualize(state_actions: StateActions) -> None:
         food_count=FOOD_COUNT,
         obstacle_count=OBSTACLE_COUNT,
         nest_count=NEST_COUNT,
-        square_pixel_width=SQUARE_PIXEL_WIDTH
+        square_pixel_width=SQUARE_PIXEL_WIDTH,
+        carry_capacity=CARRY_CAPACITY,
     )
 
     pygame.init()

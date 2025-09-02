@@ -32,7 +32,7 @@ class Observation(TypedDict):
 class Food(TypedDict):
     location: Location
     carried: bool
-    hidden: bool
+    deposited: bool
     spawn_location: Location
 
 
@@ -43,10 +43,10 @@ class Nest(TypedDict):
 
 class Agent(TypedDict):
     location: Location
-    carried_food: Food | None
+    carried_food: List[Food]
     last_action: int
     spawn_location: Location
-
+    carry_capacity: int
 
 class Obstacle(TypedDict):
     location: Location
