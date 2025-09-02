@@ -1,5 +1,7 @@
 from typing import List, Tuple, TypeAlias, Dict, TypedDict, DefaultDict
 
+import pygame
+
 Used: TypeAlias = bool or None
 AgentName: TypeAlias = str
 Location: TypeAlias = Tuple[int, int]
@@ -47,6 +49,7 @@ class Agent(TypedDict):
     last_action: int
     spawn_location: Location
     carry_capacity: int
+    color: pygame.Color
 
 
 class Obstacle(TypedDict):

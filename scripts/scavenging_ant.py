@@ -41,12 +41,15 @@ class ScavengingAntEnv:
         for agent_name in self.agent_names:
             location = self.__get_new_random_location(excluded_locations, random)
             excluded_locations.append(location)
+            color = pygame.Color(0)
+            color.hsla = (360 / (len(self.__agents) + 1), 100, 50, 100)
             self.__agents[agent_name] = {
                 "location": location,
                 "carried_food": [],
                 "last_action": 0,
                 "spawn_location": location,
                 "carry_capacity": carry_capacity,
+                "color": color
             }
 
         for _ in range(self.__nest_count):
@@ -239,10 +242,7 @@ class ScavengingAntEnv:
             canvas.blit(image, position)
 
     def get_agent_color(self, agent_name: AgentName):
-        agent_index = self.agent_names.index(agent_name)
-        color = pygame.Color(0)
-        color.hsla = (360 / (agent_index + 1), 100, 50, 100)
-        return color
+        return self.__agents[agent_name]["color"]
 
     def __draw_agents(self, canvas):
         for agent_name, agent in self.__agents.items():

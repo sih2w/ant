@@ -32,7 +32,7 @@ RENDER_FPS = 30
 SECONDS_BETWEEN_AUTO_STEP = 0.10
 ACTION_COUNT = len(ACTION_ROTATIONS)
 SPARSE_INTERVAL = 1
-DRAW_ARROWS = True
+DRAW_ARROWS = False
 SAVE_AFTER_TRAINING = True
 SHOW_AFTER_TRAINING = True
 SAVE_DIRECTORY = "../runs/q_learning"
@@ -569,8 +569,8 @@ if __name__ == "__main__":
         if SAVE_AFTER_TRAINING:
             save_data(state_actions, episode_data)
 
-    if SHOW_AFTER_TRAINING:
-        visualize(state_actions)
-
     plot_exchanges(state_actions)
     plot_episode_data(episode_data)
+
+    if SHOW_AFTER_TRAINING:
+        visualize(state_actions)
