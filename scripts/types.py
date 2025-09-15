@@ -1,5 +1,4 @@
 from typing import List, Tuple, TypeAlias, Dict, TypedDict, DefaultDict
-
 import pygame
 
 Used: TypeAlias = bool or None
@@ -12,12 +11,12 @@ Actions: TypeAlias = List[float]
 class Episode(TypedDict):
     steps: int
     rewards: Dict[AgentName, int]
+    exchange_count: int
+    exchange_use_count: int
 
 
 class Policy(TypedDict):
     actions: Actions
-    used: bool
-    given: bool
 
 
 class StateActions(TypedDict):

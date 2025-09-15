@@ -1,3 +1,4 @@
+import copy
 import math
 from typing import Any
 import dill
@@ -11,21 +12,21 @@ from tqdm import tqdm
 from scripts.types import *
 from scripts.utils import *
 
-EPISODES = 10_000
+EPISODES = 10000
 SEED = 2
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.90
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
-AGENTS_EXCHANGE_INFO = False
+AGENTS_EXCHANGE_INFO = True
 GRID_WIDTH = 10
-GRID_HEIGHT = 10
-AGENT_COUNT = 1
+GRID_HEIGHT = 5
+AGENT_COUNT = 2
 FOOD_COUNT = 20
 OBSTACLE_COUNT = 20
-NEST_COUNT = 3
+NEST_COUNT = 1
 AGENT_VISION_RADIUS = 0
-CARRY_CAPACITY = FOOD_COUNT
+CARRY_CAPACITY = 1
 
 SQUARE_PIXEL_WIDTH = 40
 RENDER_FPS = 30
@@ -49,16 +50,14 @@ FILE_NAME = (
     f"{NEST_COUNT}_"
     f"{OBSTACLE_COUNT}_"
     f"{AGENT_VISION_RADIUS}_"
-    f"{AGENTS_EXCHANGE_INFO}"
-    f"f{CARRY_CAPACITY}"
+    f"{AGENTS_EXCHANGE_INFO}_"
+    f"{CARRY_CAPACITY}"
 )
 
 
 def policy_factory() -> Policy:
     return {
-        "actions": np.zeros(ACTION_COUNT).tolist(),
-        "used": False,
-        "given": False
+        "actions": np.zeros(ACTION_COUNT).tolist()
     }
 
 
@@ -99,17 +98,24 @@ def get_action_values(
         agent_location: Location,
         food_locations: FoodLocations,
         carrying_food: bool,
-) -> Actions:
+) -> (Actions, bool):
     policy: Policy
-    if carrying_food:
-        policy = state_actions["returning"][agent_name][agent_location]
-    else:
-        policy = state_actions["searching"][agent_name][agent_location][food_locations]
+    shared = False
 
-    if AGENTS_EXCHANGE_INFO:
-        if policy["given"]:
-            policy["used"] = True
-    return policy["actions"]
+    if carrying_food:
+        if agent_location in state_actions["returning"]["shared"]:
+            policy = state_actions["returning"]["shared"][agent_location]
+            shared = True
+        else:
+            policy = state_actions["returning"][agent_name][agent_location]
+    else:
+        if food_locations in state_actions["searching"]["shared"][agent_location]:
+            policy = state_actions["searching"]["shared"][agent_location][food_locations]
+            shared = True
+        else:
+            policy = state_actions["searching"][agent_name][agent_location][food_locations]
+
+    return policy["actions"], shared
 
 
 def update_action_values(
@@ -124,9 +130,8 @@ def update_action_values(
         selected_action: int,
         reward: float
 ):
-    old_actions = get_action_values(state_actions, agent_name, old_agent_location, old_food_positions,
-                                    was_carrying_food)
-    new_actions = get_action_values(state_actions, agent_name, new_agent_location, new_food_positions, is_carrying_food)
+    old_actions, _ = get_action_values(state_actions, agent_name, old_agent_location, old_food_positions, was_carrying_food)
+    new_actions, _ = get_action_values(state_actions, agent_name, new_agent_location, new_food_positions, is_carrying_food)
     old_actions[selected_action] = old_actions[selected_action] + LEARNING_RATE_ALPHA * (
             reward + DISCOUNT_FACTOR_GAMMA * np.max(new_actions) - old_actions[selected_action])
 
@@ -141,34 +146,32 @@ def are_close_enough(
     return distance <= AGENT_VISION_RADIUS
 
 
-def fill_missing_search_policy(
+def share_search_policy(
         state_actions: StateActions,
         from_agent_name: AgentName,
-        to_agent_name: AgentName,
-) -> None:
+) -> int:
     source = state_actions["searching"][from_agent_name]
-    destination = state_actions["searching"][to_agent_name]
+    destination = state_actions["searching"]["shared"]
+    missing = source.keys() - destination.keys()
 
-    for agent_location, food_locations_to_policy in source.items():
-        for food_locations, policy in food_locations_to_policy.items():
-            if not food_locations in destination[agent_location]:
-                destination[agent_location][food_locations]["actions"] = policy["actions"].copy()
-                destination[agent_location][food_locations]["given"] = True
+    for key in missing:
+        destination[key] = copy.deepcopy(source[key])
+
+    return len(missing)
 
 
-def fill_missing_return_policy(
+def share_return_policy(
         state_actions: StateActions,
-        from_agent_name: AgentName,
-        to_agent_name: AgentName,
-) -> None:
+        from_agent_name: AgentName
+) -> int:
     source = state_actions["returning"][from_agent_name]
-    destination = state_actions["returning"][to_agent_name]
+    destination = state_actions["returning"]["shared"]
+    missing = source.keys() - destination.keys()
 
-    for agent_location, policy in source.items():
-        if agent_location not in destination:
-            destination[agent_location]["actions"] = policy["actions"].copy()
-            destination[agent_location]["given"] = True
+    for key in missing:
+        destination[key] = copy.deepcopy(source[key])
 
+    return len(missing)
 
 def fill_policy_gaps(
         state_actions: StateActions,
@@ -176,30 +179,34 @@ def fill_policy_gaps(
         agent_2_name: AgentName,
         agent_1_observation: Observation,
         agent_2_observation: Observation,
-) -> None:
+) -> int:
+    exchange_count = 0
     if agent_1_observation["carrying_food"] and agent_2_observation["carrying_food"]:
         # Agent 1 returning to nest. Agent 2 returning to nest.
-        fill_missing_return_policy(state_actions, agent_1_name, agent_2_name)
-        fill_missing_return_policy(state_actions, agent_2_name, agent_1_name)
+        exchange_count += share_return_policy(state_actions, agent_1_name)
+        exchange_count += share_return_policy(state_actions, agent_2_name)
     elif not agent_1_observation["carrying_food"] and not agent_2_observation["carrying_food"]:
         # Agent 1 searching for food. Agent 2 searching for food.
-        fill_missing_search_policy(state_actions, agent_1_name, agent_2_name)
-        fill_missing_search_policy(state_actions, agent_2_name, agent_1_name)
+        exchange_count += share_search_policy(state_actions, agent_1_name)
+        exchange_count += share_search_policy(state_actions, agent_2_name)
     elif not agent_1_observation["carrying_food"] and agent_2_observation["carrying_food"]:
         # Agent 1 searching for food. Agent 2 returning to nest.
-        fill_missing_return_policy(state_actions, agent_1_name, agent_2_name)
-        fill_missing_search_policy(state_actions, agent_2_name, agent_1_name)
+        exchange_count += share_return_policy(state_actions, agent_1_name)
+        exchange_count += share_search_policy(state_actions, agent_2_name)
     else:
         # Agent 1 returning to nest. Agent 2 searching for food.
-        fill_missing_return_policy(state_actions, agent_1_name, agent_2_name)
-        fill_missing_search_policy(state_actions, agent_2_name, agent_1_name)
+        exchange_count += share_return_policy(state_actions, agent_1_name)
+        exchange_count += share_search_policy(state_actions, agent_2_name)
+    return exchange_count
 
 
 def exchange(
         state_actions: StateActions,
         observations: Dict[AgentName, Observation]
-) -> None:
+) -> int:
     length = len(observations)
+    exchange_count = 0
+
     for index_1 in range(length):
         for index_2 in range(index_1 + 1, length):
             agent_1_name = f"agent_{index_1}"
@@ -213,13 +220,14 @@ def exchange(
             )
 
             if close_enough:
-                fill_policy_gaps(
+                exchange_count += fill_policy_gaps(
                     state_actions,
                     agent_1_name,
                     agent_2_name,
                     agent_1_observation,
                     agent_2_observation
                 )
+    return exchange_count
 
 
 def has_episode_ended(
@@ -244,17 +252,15 @@ def get_greedy_actions(
 ) -> Dict[AgentName, int]:
     greedy_actions = {}
     for agent_name, observation in observations.items():
-        greedy_actions[agent_name] = int(
-            np.argmax(
-                get_action_values(
-                    state_actions,
-                    agent_name,
-                    observation["agent_location"],
-                    observation["food_locations"],
-                    observation["carrying_food"],
-                )
-            )
+        action_values, _ = get_action_values(
+            state_actions,
+            agent_name,
+            observation["agent_location"],
+            observation["food_locations"],
+            observation["carrying_food"],
         )
+
+        greedy_actions[agent_name] = int(np.argmax(action_values))
 
     return greedy_actions
 
@@ -264,25 +270,26 @@ def get_epsilon_greedy_actions(
         observations: Dict[AgentName, Observation],
         epsilon: float,
         rng: Generator
-) -> Dict[AgentName, int]:
+) -> (Dict[AgentName, int], Dict[AgentName, bool]):
     epsilon_greedy_actions = {}
+    shared_actions = {}
+
     for agent_name, observation in observations.items():
         if rng.random() > epsilon:
-            epsilon_greedy_actions[agent_name] = int(
-                np.argmax(
-                    get_action_values(
-                        state_actions,
-                        agent_name,
-                        observation["agent_location"],
-                        observation["food_locations"],
-                        observation["carrying_food"],
-                    )
-                )
+            action_values, shared = get_action_values(
+                state_actions,
+                agent_name,
+                observation["agent_location"],
+                observation["food_locations"],
+                observation["carrying_food"],
             )
+
+            epsilon_greedy_actions[agent_name] = int(np.argmax(action_values))
+            shared_actions[agent_name] = shared
         else:
             epsilon_greedy_actions[agent_name] = rng.integers(0, ACTION_COUNT)
 
-    return epsilon_greedy_actions
+    return epsilon_greedy_actions, shared_actions
 
 
 def train() -> Tuple[StateActions, List[Episode]]:
@@ -309,12 +316,18 @@ def train() -> Tuple[StateActions, List[Episode]]:
         terminations, truncations = {}, {}
         current_episode: Episode = {
             "steps": 0,
-            "rewards": {agent_name: 0 for agent_name in env.agent_names}
+            "rewards": {agent_name: 0 for agent_name in env.agent_names},
+            "exchange_count": 0,
+            "exchange_use_count": 0
         }
 
         while not has_episode_ended(terminations, truncations):
-            selected_actions = get_epsilon_greedy_actions(state_actions, observations, epsilon, rng)
+            selected_actions, shared_actions = get_epsilon_greedy_actions(state_actions, observations, epsilon, rng)
             new_observations, rewards, terminations, truncations, infos = env.step(selected_actions)
+
+            for _, shared in shared_actions.items():
+                if shared:
+                    current_episode["exchange_use_count"] += 1
 
             for agent_name, reward in rewards.items():
                 current_episode["rewards"][agent_name] += reward
@@ -335,7 +348,7 @@ def train() -> Tuple[StateActions, List[Episode]]:
                 )
 
             if AGENTS_EXCHANGE_INFO:
-                exchange(state_actions, new_observations)
+                current_episode["exchange_count"] += exchange(state_actions, new_observations)
 
             current_episode["steps"] += 1
             observations = new_observations
@@ -369,7 +382,7 @@ def draw(
         for row in range(GRID_HEIGHT):
             for column in range(GRID_WIDTH):
                 agent_position = (column, row)
-                action_values = get_action_values(
+                action_values, _ = get_action_values(
                     state_actions,
                     selected_agent_name,
                     agent_position,
@@ -495,67 +508,38 @@ def plot_episode_data(episode_data: List[Episode]) -> None:
 
     episode_steps = []
     episode_rewards = []
+    episode_exchanges = []
+    episode_exchange_uses = []
 
     for episode in episode_data:
         episode_steps.append(episode["steps"])
         episode_rewards.append(episode["rewards"])
+        episode_exchanges.append(episode["exchange_count"])
+        episode_exchange_uses.append(episode["exchange_use_count"])
 
-    plt.plot(episodes, episode_steps, color="green")
-    plt.title("Steps")
-    plt.xlabel("Episodes")
-    plt.show()
-
-    episode_agent_rewards = {}
-    for _, agent_rewards in enumerate(episode_rewards):
-        for agent_name, episode_reward in agent_rewards.items():
-            if episode_agent_rewards.get(agent_name) is None:
-                episode_agent_rewards[agent_name] = []
-            episode_agent_rewards[agent_name].append(episode_reward)
-    for agent_name, episode_rewards in episode_agent_rewards.items():
-        plt.plot(episodes, episode_rewards, label=agent_name)
-
-    plt.title("Rewards")
-    plt.xlabel("Episodes")
+    plt.plot(episodes, episode_exchange_uses, color="red", label="Used")
+    plt.plot(episodes, episode_exchanges, color="blue", label="Given")
+    plt.title("Exchanges")
+    plt.xlabel("Episode")
     plt.legend()
     plt.show()
 
-
-def get_search_exchanges(state_actions: StateActions) -> Tuple[int, int]:
-    given_count, used_count = 0, 0
-    for agent_name, agent_location_to_food_locations in state_actions["searching"].items():
-        for agent_location, food_locations_to_policy in agent_location_to_food_locations.items():
-            for food_locations, policy in food_locations_to_policy.items():
-                if policy["given"]:
-                    given_count += 1
-                    if policy["used"]:
-                        used_count += 1
-
-    return given_count, used_count
-
-
-def get_return_exchanges(state_actions: StateActions) -> Tuple[int, int]:
-    given_count, used_count = 0, 0
-    for agent_name, agent_location_to_policy in state_actions["returning"].items():
-        for agent_location, policy in agent_location_to_policy.items():
-            if policy["given"]:
-                given_count += 1
-                if policy["used"]:
-                    used_count += 1
-
-    return given_count, used_count
-
-
-def plot_exchanges(state_actions: StateActions) -> None:
-    given_count, used_count = get_search_exchanges(state_actions)
-    plt.bar(["Given", "Used"], [given_count, used_count], color=["orange", "red"])
-    plt.title("Search Exchanges")
-    plt.ylabel("Amount")
+    plt.plot(episodes, episode_steps, color="green")
+    plt.title("Steps")
+    plt.xlabel("Episode")
     plt.show()
 
-    given_count, used_count = get_return_exchanges(state_actions)
-    plt.bar(["Given", "Used"], [given_count, used_count], color=["orange", "red"])
-    plt.title("Return Exchanges")
-    plt.ylabel("Amount")
+    episode_agent_rewards = defaultdict(list)
+    for agent_rewards in episode_rewards:
+        for name, reward in agent_rewards.items():
+            episode_agent_rewards[name].append(reward)
+
+    for name, rewards in episode_agent_rewards.items():
+        plt.plot(episodes, rewards, label=name)
+
+    plt.title("Rewards")
+    plt.xlabel("Episode")
+    plt.legend()
     plt.show()
 
 
@@ -569,7 +553,6 @@ if __name__ == "__main__":
         if SAVE_AFTER_TRAINING:
             save_data(state_actions, episode_data)
 
-    plot_exchanges(state_actions)
     plot_episode_data(episode_data)
 
     if SHOW_AFTER_TRAINING:

@@ -1,4 +1,3 @@
-from __future__ import annotations
 import math
 from scripts.types import *
 from scripts.utils import *
