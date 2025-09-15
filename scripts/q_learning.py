@@ -12,15 +12,15 @@ from tqdm import tqdm
 from scripts.types import *
 from scripts.utils import *
 
-EPISODES = 10000
-SEED = 2
+EPISODES = 1000
+SEED = 4
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.90
 EPSILON_START = 1
 EPSILON_DECAY_RATE = EPSILON_START / (EPISODES / 2)
 AGENTS_EXCHANGE_INFO = True
-GRID_WIDTH = 10
-GRID_HEIGHT = 5
+GRID_WIDTH = 15
+GRID_HEIGHT = 10
 AGENT_COUNT = 2
 FOOD_COUNT = 20
 OBSTACLE_COUNT = 20
@@ -92,6 +92,51 @@ def sparsify(data: Any) -> Any:
     return sparse_data
 
 
+def _is_shared(key, shared_map) -> bool:
+    return key in shared_map
+
+
+def _maybe_clone_shared(shared_map, agent_map, key):
+    if key in shared_map and key not in agent_map:
+        agent_map[key] = copy.deepcopy(shared_map[key])
+        return agent_map[key]
+    return None
+
+
+def get_returning_policy(
+    state_actions: StateActions,
+    agent_name: AgentName,
+    agent_location: Location
+) -> Tuple[Policy, bool]:
+    shared_map = state_actions["returning"]["shared"]
+    agent_map = state_actions["returning"][agent_name]
+
+    shared = _is_shared(agent_location, shared_map)
+    policy = _maybe_clone_shared(shared_map, agent_map, agent_location)
+
+    if policy is None:
+        policy = agent_map[agent_location]
+
+    return policy, shared
+
+
+def get_searching_policy(
+    state_actions: StateActions,
+    agent_name: AgentName,
+    agent_location: Location,
+    food_locations: FoodLocations,
+) -> Tuple[Policy, bool]:
+    shared_map = state_actions["searching"]["shared"][agent_location]
+    agent_map = state_actions["searching"][agent_name][agent_location]
+
+    shared = _is_shared(food_locations, shared_map)
+    policy = _maybe_clone_shared(shared_map, agent_map, food_locations)
+
+    if policy is None:
+        policy = agent_map[food_locations]
+
+    return policy, shared
+
 def get_action_values(
         state_actions: StateActions,
         agent_name: AgentName,
@@ -99,21 +144,10 @@ def get_action_values(
         food_locations: FoodLocations,
         carrying_food: bool,
 ) -> (Actions, bool):
-    policy: Policy
-    shared = False
-
     if carrying_food:
-        if agent_location in state_actions["returning"]["shared"]:
-            policy = state_actions["returning"]["shared"][agent_location]
-            shared = True
-        else:
-            policy = state_actions["returning"][agent_name][agent_location]
+        policy, shared = get_returning_policy(state_actions, agent_name, agent_location)
     else:
-        if food_locations in state_actions["searching"]["shared"][agent_location]:
-            policy = state_actions["searching"]["shared"][agent_location][food_locations]
-            shared = True
-        else:
-            policy = state_actions["searching"][agent_name][agent_location][food_locations]
+        policy, shared = get_searching_policy(state_actions, agent_name, agent_location, food_locations)
 
     return policy["actions"], shared
 
