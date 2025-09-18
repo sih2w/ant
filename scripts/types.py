@@ -11,8 +11,10 @@ Actions: TypeAlias = List[float]
 class Episode(TypedDict):
     steps: int
     rewards: Dict[AgentName, int]
-    exchange_count: int
-    exchange_use_count: int
+    search_exchange_count: int
+    search_exchange_use_count: int
+    return_exchange_count: int
+    return_exchange_use_count: int
 
 
 class Policy(TypedDict):
