@@ -12,7 +12,7 @@ from tqdm import tqdm
 from scripts.types import *
 from scripts.utils import *
 
-EPISODES = 1000
+EPISODES = 10000
 SEED = 4
 LEARNING_RATE_ALPHA = 0.10
 DISCOUNT_FACTOR_GAMMA = 0.90
