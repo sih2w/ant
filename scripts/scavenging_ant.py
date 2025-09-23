@@ -1,6 +1,6 @@
 import math
 from scripts.types import *
-from scripts.utils import *
+from scripts.utils import change_image_color
 import numpy as np
 import pygame
 

@@ -1,5 +1,6 @@
 import pygame
 
+
 def change_image_color(image, color):
     colored_image = pygame.Surface(image.get_size())
     colored_image.fill(color)

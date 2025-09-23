@@ -1,6 +1,7 @@
 from typing import List, Tuple, TypeAlias, Dict, TypedDict, DefaultDict
 import pygame
 
+
 Used: TypeAlias = bool or None
 AgentName: TypeAlias = str
 Location: TypeAlias = Tuple[int, int]
