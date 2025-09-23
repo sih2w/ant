@@ -98,7 +98,6 @@ if __name__ == "__main__":
         state_actions, episode_data = train(env)
         if SAVE_AFTER_TRAINING:
             save_data(state_actions, episode_data)
-    print(episode_data)
     plot_episode_data(episode_data)
 
     if SHOW_AFTER_TRAINING:
