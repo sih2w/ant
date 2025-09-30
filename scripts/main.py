@@ -1,9 +1,54 @@
-from typing import Any, Callable
+import copy
+from collections import defaultdict
+from typing import Any, Callable, Optional
 import dill
 import os
 import matplotlib.pyplot as plt
-from scripts.q_learning import train, get_greedy_actions
-from scripts.shared import *
+import numpy as np
+from tqdm import tqdm
+from scripts.temporal_difference_learning import q_learning, sarsa_learning
+from scripts.scavenging_ant import ScavengingAntEnv, ACTION_ROTATIONS
+from scripts.utils import *
+from scripts.constants import *
+from scripts.types import *
+from scripts.state_action_functions import get_decided_actions, get_training_actions
+from scripts.exchange_functions import exchange
+
+
+PolicyUpdator: TypeAlias = Callable[[StateActions, AgentName, State, State, int, int, int, float], None]
+
+
+def policy_factory() -> Policy:
+    return {
+        "actions": np.zeros(ACTION_COUNT).tolist()
+    }
+
+
+def state_actions_factory() -> StateActions:
+    return {
+        "returning": defaultdict(lambda: defaultdict(lambda: policy_factory())),
+        "searching": defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: policy_factory()))),
+    }
+
+
+def has_episode_ended(
+        terminations: Dict[AgentName, bool],
+        truncations: Dict[AgentName, bool],
+        episode: Optional[Episode]
+) -> bool:
+    if episode is not None and episode["steps"] >= MAX_STEPS:
+        return True
+
+    for _, termination in terminations.items():
+        terminated = termination
+        if terminated:
+            return True
+    else:
+        for _, truncation in truncations.items():
+            truncated = truncation
+            if truncated:
+                return True
+    return False
 
 
 def load_data() -> Tuple[StateActions, List[Episode]]:
@@ -77,10 +122,60 @@ def plot_episode_data(episode_data: List[Episode]) -> None:
     plt.show()
 
 
+def draw_arrows(
+    env: ScavengingAntEnv,
+    states: Dict[AgentName, State],
+    selected_agent_index: int,
+    state_actions: StateActions,
+    canvas: pygame.Surface
+) -> None:
+    agent_name = f"agent_{selected_agent_index}"
+    states = copy.deepcopy(states)
+
+    for row in range(GRID_HEIGHT):
+        for column in range(GRID_WIDTH):
+            states[agent_name]["agent_location"] = (column, row)
+            agent_actions = get_decided_actions(state_actions, states)
+
+            image = pygame.image.load(f"../images/icons8-triangle-48.png")
+            image = change_image_color(image, env.get_agent_color(agent_name))
+            rotation = ACTION_ROTATIONS[agent_actions[agent_name]]
+            position = (
+                column * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_width() / 2,
+                row * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - image.get_height() / 2,
+            )
+            image = pygame.transform.rotate(image, rotation)
+            canvas.blit(image, position)
+
+
+def draw(
+        env: ScavengingAntEnv,
+        window_size: Tuple[int, int],
+        window: pygame.Surface,
+        states: Dict[AgentName, State],
+        selected_agent_index: int,
+        state_actions: StateActions
+) -> None:
+    canvas = pygame.Surface(window_size)
+    env.draw(canvas)
+
+    if DRAW_ARROWS:
+        draw_arrows(
+            env=env,
+            states=states,
+            selected_agent_index=selected_agent_index,
+            state_actions=state_actions,
+            canvas=canvas
+        )
+
+    window.blit(canvas, canvas.get_rect())
+    pygame.event.pump()
+    pygame.display.flip()
+
+
 def visualize(
         state_actions: StateActions,
-        env: ScavengingAntEnv,
-        action_selector: Callable[[StateActions, Dict[AgentName, Observation]], Dict[AgentName, int]],
+        env: ScavengingAntEnv
 ) -> None:
     pygame.init()
     pygame.display.set_caption("Q-Learning Ants")
@@ -100,34 +195,34 @@ def visualize(
     stepping = False
 
     while running:
-        observations, _ = env.reset()
+        states, _ = env.reset()
         terminations, truncations = {}, {}
 
         draw(
-            env,
-            observations,
-            selected_agent_index,
-            window,
-            window_size,
-            state_actions,
+            env=env,
+            window_size=window_size,
+            window=window,
+            states=states,
+            selected_agent_index=selected_agent_index,
+            state_actions=state_actions
         )
 
-        while running and not has_episode_ended(terminations, truncations):
+        while running and not has_episode_ended(terminations, truncations, None):
             draw_next_step = auto_run_enabled and run_interval_time == 0
             draw_next_step = draw_next_step or (stepping_enabled and not stepping)
 
             if draw_next_step:
                 stepping = True
-                selected_actions = action_selector(state_actions, observations)
-                observations, rewards, terminations, truncations, info = env.step(selected_actions)
+                agent_actions = get_decided_actions(state_actions, states)
+                states, rewards, terminations, truncations, info = env.step(agent_actions)
 
                 draw(
-                    env,
-                    observations,
-                    selected_agent_index,
-                    window,
-                    window_size,
-                    state_actions,
+                    env=env,
+                    window_size=window_size,
+                    window=window,
+                    states=states,
+                    selected_agent_index=selected_agent_index,
+                    state_actions=state_actions
                 )
 
             for event in pygame.event.get():
@@ -168,6 +263,76 @@ def visualize(
     pygame.quit()
 
 
+def train(
+        env: ScavengingAntEnv,
+        policy_updator: PolicyUpdator
+) -> Tuple[StateActions, List[Episode]]:
+    state_actions: StateActions = state_actions_factory()
+    episode_data: List[Episode] = []
+
+    epsilon = EPSILON_START
+    rng = np.random.default_rng(seed=SEED)
+    progress_bar = tqdm(total=EPISODES, desc="Training")
+
+    for _ in range(EPISODES):
+        states, _ = env.reset()
+        episode: Episode = {
+            "steps": 0,
+            "rewards": {agent_name: 0 for agent_name in env.agent_names},
+            "search_exchange_count": 0,
+            "return_exchange_count": 0,
+            "return_exchange_use_count": 0,
+            "search_exchange_use_count": 0
+        }
+
+        terminations: Dict[AgentName, bool] = {}
+        truncations: Dict[AgentName, bool] = {}
+        previous_actions: Dict[AgentName, int] = {}
+
+        while not has_episode_ended(terminations, truncations, episode):
+            selected_actions: Dict[AgentName, int] = get_training_actions(
+                state_actions=state_actions,
+                states=states,
+                epsilon=epsilon,
+                rng=rng,
+                episode=episode
+            )
+
+            new_states, rewards, terminations, truncations, infos = env.step(selected_actions)
+            for agent_name, reward in rewards.items():
+                episode["rewards"][agent_name] += reward
+
+            if len(previous_actions) == 0:
+                previous_actions = selected_actions
+
+            for agent_name, new_state in new_states.items():
+                policy_updator(
+                    state_actions,
+                    agent_name,
+                    states[agent_name],
+                    new_state,
+                    selected_actions[agent_name],
+                    previous_actions[agent_name],
+                    rewards[agent_name],
+                    epsilon
+                )
+
+            if AGENTS_EXCHANGE_INFO:
+                exchange(state_actions, new_states, episode)
+
+            episode["steps"] += 1
+            states = new_states
+            previous_actions = selected_actions
+
+        epsilon = max(epsilon - EPSILON_DECAY_RATE, EPSILON_MIN)
+        progress_bar.update(1)
+        episode_data.append(episode)
+
+    progress_bar.close()
+
+    return state_actions, episode_data
+
+
 if __name__ == "__main__":
     os.makedirs(name=SAVE_DIRECTORY, exist_ok=True)
 
@@ -186,10 +351,12 @@ if __name__ == "__main__":
     try:
         state_actions, episode_data = load_data()
     except FileNotFoundError:
-        state_actions, episode_data = train(env) # Can swap train function
+        policy_updator = sarsa_learning if LEARNING_METHOD == "Sarsa" else q_learning
+        state_actions, episode_data = train(env, policy_updator)
+
         if SAVE_AFTER_TRAINING:
             save_data(state_actions, episode_data)
     plot_episode_data(episode_data)
 
     if SHOW_AFTER_TRAINING:
-        visualize(state_actions, env, get_greedy_actions) # Can swap action selector
+        visualize(state_actions, env)

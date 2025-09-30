@@ -27,7 +27,7 @@ class StateActions(TypedDict):
     searching: DefaultDict[AgentName, DefaultDict[Location, DefaultDict[FoodLocations, Policy]]]
 
 
-class Observation(TypedDict):
+class State(TypedDict):
     agent_location: Location
     carrying_food: bool
     food_locations: FoodLocations

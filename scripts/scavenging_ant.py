@@ -97,15 +97,15 @@ class ScavengingAntEnv:
         return self.__get_random_location(random)
 
     @staticmethod
-    def __get_observation(agent: Agent, food_locations: FoodLocations) -> Observation:
+    def __get_state(agent: Agent, food_locations: FoodLocations) -> State:
         return {
             "agent_location": agent["location"],
             "carrying_food": len(agent["carried_food"]) > 0,
             "food_locations": food_locations,
         }
 
-    def __get_observations(self) -> Dict[str, Observation]:
-        observations = {}
+    def __get_states(self) -> Dict[str, State]:
+        states = {}
         food_locations = []
 
         for food in self.__food:
@@ -114,9 +114,9 @@ class ScavengingAntEnv:
         food_locations = tuple(food_locations)
 
         for agent_name, agent in self.__agents.items():
-            observations[agent_name] = self.__get_observation(agent, food_locations)
+            states[agent_name] = self.__get_state(agent, food_locations)
 
-        return observations
+        return states
 
     def reset(self):
         for obstacle in self.__obstacles:
@@ -135,7 +135,7 @@ class ScavengingAntEnv:
             agent["carried_food"].clear()
             agent["last_action"] = 0
 
-        return self.__get_observations(), {}
+        return self.__get_states(), {}
 
     def __outside_grid(self, location: Location) -> bool:
         return location[0] < 0 or location[0] >= self.__grid_width or location[1] < 0 or location[1] >= self.__grid_height
@@ -223,7 +223,7 @@ class ScavengingAntEnv:
             truncations[agent_name] = False
 
         return (
-            self.__get_observations(),
+            self.__get_states(),
             rewards,
             terminations,
             truncations,
