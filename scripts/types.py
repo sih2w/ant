@@ -20,11 +20,13 @@ class Episode(TypedDict):
 
 class Policy(TypedDict):
     actions: Actions
+    given: bool
+    used: bool
 
 
 class StateActions(TypedDict):
-    returning: DefaultDict[AgentName, DefaultDict[Location, Policy]]
-    searching: DefaultDict[AgentName, DefaultDict[Location, DefaultDict[FoodLocations, Policy]]]
+    returning: DefaultDict[AgentName, List[List[Policy]]] # Each grid position is a policy.
+    searching: DefaultDict[AgentName, List[List[DefaultDict[FoodLocations, Policy]]]] # Each grid position is a dictionary {[Location]: Policy}
 
 
 class State(TypedDict):

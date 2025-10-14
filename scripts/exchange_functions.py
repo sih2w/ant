@@ -1,7 +1,15 @@
 import copy
 import math
+from typing import Any
 from scripts.constants import *
 from scripts.types import *
+
+
+def set_used_if_given(policy: Policy) -> bool:
+    if policy["given"] and not policy["used"]:
+        policy["used"] = True
+        return True
+    return False
 
 
 def are_close_enough(
@@ -14,34 +22,64 @@ def are_close_enough(
     return distance <= AGENT_VISION_RADIUS
 
 
+def all_equals(iterable: List or Tuple, value: Any) -> bool:
+    for item in iterable:
+        if item != value:
+            return False
+    return True
+
+
+def try_give_policy(source_policy: Policy, target_policy: Policy) -> bool:
+    if all_equals(source_policy["actions"], 0.00):
+        # Don't consider giving a policy that has not been developed yet.
+        return False
+
+    if all_equals(target_policy["actions"], 0.00):
+        # Overwrite the non-developed target policy with the developed source policy.
+        target_policy["actions"] = copy.copy(source_policy["actions"])
+        target_policy["given"] = True
+        return True
+
+    return False
+
+
 def share_search_policy(
         state_actions: StateActions,
-        from_agent_name: AgentName
+        from_agent_name: AgentName,
+        to_agent_name: AgentName,
+        current_food_locations: FoodLocations,
 ) -> int:
     source = state_actions["searching"][from_agent_name]
-    destination = state_actions["searching"]["shared"]
+    destination = state_actions["searching"][to_agent_name]
     exchange_count = 0
 
-    for agent_location, food_locations_to_policy in source.items():
-        for food_location, policy in food_locations_to_policy.items():
-            if not food_location in destination[agent_location]:
-                destination[agent_location][food_location] = copy.deepcopy(policy)
+    for row, columns in enumerate(source):
+        for column, source_dictionary in enumerate(columns):
+            source_policy = source_dictionary[current_food_locations]
+            target_policy = destination[row][column][current_food_locations]
+            success = try_give_policy(source_policy, target_policy)
+            if success:
                 exchange_count += 1
+
     return exchange_count
 
 
 def share_return_policy(
         state_actions: StateActions,
-        from_agent_name: AgentName
+        from_agent_name: AgentName,
+        to_agent_name: AgentName
 ) -> int:
     source = state_actions["returning"][from_agent_name]
-    destination = state_actions["returning"]["shared"]
+    destination = state_actions["returning"][to_agent_name]
     exchange_count = 0
 
-    for agent_location, policy in source.items():
-        if not agent_location in destination:
-            destination[agent_location] = copy.deepcopy(policy)
-            exchange_count += 1
+    for row, columns in enumerate(source):
+        for column, source_policy in enumerate(columns):
+            target_policy = destination[row][column]
+            success = try_give_policy(source_policy, target_policy)
+            if success:
+                exchange_count += 1
+
     return exchange_count
 
 
@@ -51,24 +89,25 @@ def fill_policy_gaps(
         agent_2_name: AgentName,
         agent_1_state: State,
         agent_2_state: State,
-        episode: Episode,
+        episode: Episode
 ) -> None:
+    current_food_locations = agent_1_state["food_locations"]  # Food locations are the same for all agents.
     if agent_1_state["carrying_food"] and agent_2_state["carrying_food"]:
         # Agent 1 returning to nest. Agent 2 returning to nest.
-        episode["return_exchange_count"] += share_return_policy(state_actions, agent_1_name)
-        episode["return_exchange_count"] += share_return_policy(state_actions, agent_2_name)
+        episode["return_exchange_count"] += share_return_policy(state_actions, agent_1_name, agent_2_name)
+        episode["return_exchange_count"] += share_return_policy(state_actions, agent_2_name, agent_1_name)
     elif not agent_1_state["carrying_food"] and not agent_2_state["carrying_food"]:
         # Agent 1 searching for food. Agent 2 searching for food.
-        episode["search_exchange_count"] += share_search_policy(state_actions, agent_1_name)
-        episode["search_exchange_count"] += share_search_policy(state_actions, agent_2_name)
+        episode["search_exchange_count"] += share_search_policy(state_actions, agent_1_name, agent_2_name, current_food_locations)
+        episode["search_exchange_count"] += share_search_policy(state_actions, agent_2_name, agent_1_name, current_food_locations)
     elif not agent_1_state["carrying_food"] and agent_2_state["carrying_food"]:
         # Agent 1 searching for food. Agent 2 returning to nest.
-        episode["return_exchange_count"] += share_return_policy(state_actions, agent_1_name)
-        episode["search_exchange_count"] += share_search_policy(state_actions, agent_2_name)
+        episode["return_exchange_count"] += share_return_policy(state_actions, agent_1_name, agent_2_name)
+        episode["search_exchange_count"] += share_search_policy(state_actions, agent_2_name, agent_1_name, current_food_locations)
     else:
         # Agent 1 returning to nest. Agent 2 searching for food.
-        episode["return_exchange_count"] += share_return_policy(state_actions, agent_1_name)
-        episode["search_exchange_count"] += share_search_policy(state_actions, agent_2_name)
+        episode["return_exchange_count"] += share_return_policy(state_actions, agent_1_name, agent_2_name)
+        episode["search_exchange_count"] += share_search_policy(state_actions, agent_2_name, agent_1_name, current_food_locations)
 
 
 def exchange(

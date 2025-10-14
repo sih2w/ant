@@ -1,6 +1,6 @@
 import copy
 from collections import defaultdict
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, TypeVar
 import dill
 import os
 import matplotlib.pyplot as plt
@@ -15,19 +15,32 @@ from scripts.state_action_functions import get_decided_actions, get_training_act
 from scripts.exchange_functions import exchange
 
 
+T = TypeVar("T")
 PolicyUpdator: TypeAlias = Callable[[StateActions, AgentName, State, State, int, int, int, float], None]
 
 
 def policy_factory() -> Policy:
     return {
-        "actions": np.zeros(ACTION_COUNT).tolist()
+        "actions": np.zeros(ACTION_COUNT).tolist(),
+        "given": False,
+        "used": False
     }
+
+
+def create_grid(callback: Callable[[], T]) -> List[List[T]]:
+    grid = []
+    for row in range(GRID_HEIGHT):
+        new_row = []
+        for column in range(GRID_WIDTH):
+            new_row.append(callback())
+        grid.append(new_row)
+    return grid
 
 
 def state_actions_factory() -> StateActions:
     return {
-        "returning": defaultdict(lambda: defaultdict(lambda: policy_factory())),
-        "searching": defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: policy_factory()))),
+        "returning": defaultdict(lambda: create_grid(lambda: policy_factory())),
+        "searching": defaultdict(lambda: create_grid(lambda: defaultdict(lambda: policy_factory()))),
     }
 
 
@@ -36,18 +49,18 @@ def has_episode_ended(
         truncations: Dict[AgentName, bool],
         episode: Optional[Episode]
 ) -> bool:
-    if episode is not None and episode["steps"] >= MAX_STEPS:
-        return True
+    def has_max_steps_reached(episode: Optional[Episode]) -> bool:
+        return episode is not None and episode["steps"] >= MAX_STEPS
 
-    for _, termination in terminations.items():
-        terminated = termination
-        if terminated:
-            return True
-    else:
-        for _, truncation in truncations.items():
-            truncated = truncation
-            if truncated:
-                return True
+    def contains_true_values(data: Dict[AgentName, bool]) -> bool:
+        return any(data.values())
+
+    if has_max_steps_reached(episode):
+        return True
+    if contains_true_values(terminations):
+        return True
+    if contains_true_values(truncations):
+        return True
     return False
 
 
