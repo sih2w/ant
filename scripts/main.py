@@ -1,6 +1,6 @@
 import copy
 from collections import defaultdict
-from typing import Any, Callable, Optional, TypeVar
+from typing import Callable, Optional, TypeVar
 import dill
 import os
 import matplotlib.pyplot as plt
@@ -40,7 +40,7 @@ def create_grid(callback: Callable[[], T]) -> List[List[T]]:
 def state_actions_factory() -> StateActions:
     return {
         "returning": defaultdict(lambda: create_grid(lambda: policy_factory())),
-        "searching": defaultdict(lambda: create_grid(lambda: defaultdict(lambda: policy_factory()))),
+        "searching": defaultdict(lambda: defaultdict(lambda: create_grid(lambda: policy_factory()))),
     }
 
 
@@ -81,15 +81,52 @@ def save_data(
         }, file)
 
 
-def sparse_episode_data(episode_data: List[Episode]) -> Any:
+def average_episode_data(episode_data: List[Episode]) -> List[Episode]:
     new_episode_data = []
-    for index in range(0, len(episode_data), GRAPH_STEP):
-        new_episode_data.append(episode_data[index])
+
+    for current in range(0, len(episode_data), GRAPH_STEP):
+        episode_sum: Episode = {
+            "steps": 0,
+            "search_exchange_count": 0,
+            "search_exchange_use_count": 0,
+            "return_exchange_count": 0,
+            "return_exchange_use_count": 0,
+            "rewards": {}
+        }
+        count = 0
+
+        start = max(0, current - GRAPH_STEP)
+        end = min(current, len(episode_data))
+
+        for previous in range(start, end):
+            episode: Episode = episode_data[previous]
+            episode_sum["steps"] += episode["steps"]
+            episode_sum["search_exchange_count"] += episode["search_exchange_count"]
+            episode_sum["search_exchange_use_count"] += episode["search_exchange_use_count"]
+            episode_sum["return_exchange_count"] += episode["return_exchange_count"]
+            episode_sum["return_exchange_use_count"] += episode["return_exchange_use_count"]
+            count += 1
+
+            for agent_name, reward in episode["rewards"].items():
+                episode_sum["rewards"].setdefault(agent_name, 0)
+                episode_sum["rewards"][agent_name] += reward
+
+        if count > 0:
+            episode_average: Episode = {
+                "steps": round(episode_sum["steps"] / count),
+                "search_exchange_count": round(episode_sum["search_exchange_count"] / count),
+                "search_exchange_use_count": round(episode_sum["search_exchange_use_count"] / count),
+                "return_exchange_count": round(episode_sum["return_exchange_count"] / count),
+                "return_exchange_use_count": round(episode_sum["return_exchange_use_count"] / count),
+                "rewards": {agent_name: round(total_reward / count) for agent_name, total_reward in episode_sum["rewards"].items()}
+            }
+            new_episode_data.append(episode_average)
+
     return new_episode_data
 
 
 def plot_episode_data(episode_data: List[Episode]) -> None:
-    episode_data = sparse_episode_data(episode_data)
+    episode_data = average_episode_data(episode_data)
     episodes = [episode * GRAPH_STEP for episode in range(len(episode_data))]
 
     episode_steps = []

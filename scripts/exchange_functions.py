@@ -49,14 +49,13 @@ def share_search_policy(
         to_agent_name: AgentName,
         current_food_locations: FoodLocations,
 ) -> int:
-    source = state_actions["searching"][from_agent_name]
-    destination = state_actions["searching"][to_agent_name]
+    source = state_actions["searching"][from_agent_name][current_food_locations]
+    destination = state_actions["searching"][to_agent_name][current_food_locations]
     exchange_count = 0
 
     for row, columns in enumerate(source):
-        for column, source_dictionary in enumerate(columns):
-            source_policy = source_dictionary[current_food_locations]
-            target_policy = destination[row][column][current_food_locations]
+        for column, source_policy in enumerate(columns):
+            target_policy = destination[row][column]
             success = try_give_policy(source_policy, target_policy)
             if success:
                 exchange_count += 1

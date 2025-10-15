@@ -26,7 +26,8 @@ class Policy(TypedDict):
 
 class StateActions(TypedDict):
     returning: DefaultDict[AgentName, List[List[Policy]]] # Each grid position is a policy.
-    searching: DefaultDict[AgentName, List[List[DefaultDict[FoodLocations, Policy]]]] # Each grid position is a dictionary {[Location]: Policy}
+    # searching: DefaultDict[AgentName, List[List[DefaultDict[FoodLocations, Policy]]]] # Each grid position is a dictionary {[Location]: Policy}
+    searching: DefaultDict[AgentName, DefaultDict[FoodLocations, List[List[Policy]]]] # Each grid position is a dictionary {[Location]: Policy}
 
 
 class State(TypedDict):

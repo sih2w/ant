@@ -21,10 +21,9 @@ def get_searching_policy(
     agent_name: AgentName,
     state: State
 ) -> Policy:
-    source = state_actions["searching"][agent_name]
+    source = state_actions["searching"][agent_name][state["food_locations"]]
     agent_location = state["agent_location"]
-    dictionary = source[agent_location[1]][agent_location[0]]
-    policy = dictionary[state["food_locations"]]
+    policy = source[agent_location[1]][agent_location[0]]
     return policy
 
 
