@@ -148,7 +148,7 @@ def plot_episode_data(episode_data: List[Episode]) -> None:
     plt.plot(episodes, episode_search_exchanges, color="blue", label="Search Exchanges")
     plt.plot(episodes, episode_return_exchanges, color="green", label="Return Exchanges")
     plt.plot(episodes, episode_return_exchange_uses, color="purple", label="Used Return Exchanges")
-    plt.title("Exchanges")
+    plt.title("Exchanges per Episode")
     plt.xlabel(f"Episode (Step = {GRAPH_STEP})")
     plt.legend()
     plt.show()
@@ -169,6 +169,18 @@ def plot_episode_data(episode_data: List[Episode]) -> None:
     plt.title("Rewards")
     plt.xlabel(f"Episode (Step = {GRAPH_STEP})")
     plt.legend()
+    plt.show()
+
+    categories = ["Searches Given", "Searches Used", "Returns Given", "Returns Used"]
+    values = [
+        sum(episode_search_exchanges),
+        sum(episode_search_exchange_uses),
+        sum(episode_return_exchanges),
+        sum(episode_return_exchange_uses)
+    ]
+
+    plt.bar(categories, values)
+    plt.title("Exchanges")
     plt.show()
 
 
