@@ -1,9 +1,9 @@
-from typing import List, Tuple, TypeAlias, Dict, TypedDict, DefaultDict
+from typing import List, Tuple, TypeAlias, TypedDict, DefaultDict, TypeVar
 import pygame
 
 
+T = TypeVar("T")
 Used: TypeAlias = bool or None
-AgentName: TypeAlias = str
 Location: TypeAlias = Tuple[int, int]
 FoodLocations: TypeAlias = Tuple[Location, ...]
 Actions: TypeAlias = List[float]
@@ -11,7 +11,7 @@ Actions: TypeAlias = List[float]
 
 class Episode(TypedDict):
     steps: int
-    rewards: Dict[AgentName, int]
+    rewards: List[int]
     search_exchange_count: int
     search_exchange_use_count: int
     return_exchange_count: int
@@ -20,14 +20,16 @@ class Episode(TypedDict):
 
 class Policy(TypedDict):
     actions: Actions
-    given: bool
+    shared: bool
     used: bool
 
 
+GriddedPolicy: TypeAlias = List[List[Policy]]
+
+
 class StateActions(TypedDict):
-    returning: DefaultDict[AgentName, List[List[Policy]]] # Each grid position is a policy.
-    # searching: DefaultDict[AgentName, List[List[DefaultDict[FoodLocations, Policy]]]] # Each grid position is a dictionary {[Location]: Policy}
-    searching: DefaultDict[AgentName, DefaultDict[FoodLocations, List[List[Policy]]]] # Each grid position is a dictionary {[Location]: Policy}
+    returning: DefaultDict[int, List[List[Policy]]]
+    searching: DefaultDict[int, DefaultDict[FoodLocations, List[List[Policy]]]]
 
 
 class State(TypedDict):

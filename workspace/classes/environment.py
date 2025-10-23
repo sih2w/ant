@@ -1,6 +1,6 @@
 import math
-from scripts.types import *
-from scripts.utils import change_image_color
+from workspace.shared_types import *
+from workspace.functions.pygame_functions import change_image_color
 import numpy as np
 import pygame
 
@@ -30,26 +30,26 @@ class ScavengingAntEnv:
         self.__food: List[Food] = []
         self.__obstacles: List[Obstacle] = []
         self.__nests: List[Nest] = []
-        self.__agents: Dict[str, Agent] = {}
+        self.__agents: List[Agent] = []
+        self.__seed = seed
 
-        random = np.random.default_rng(seed)
+        random = np.random.default_rng(self.__seed)
         excluded_locations = []
 
-        self.agent_names = [f"agent_{index}" for index in range(agent_count)]
-
-        for agent_name in self.agent_names:
+        for index in range(agent_count):
             location = self.__get_new_random_location(excluded_locations, random)
             excluded_locations.append(location)
             color = pygame.Color(0)
             color.hsla = (360 / (len(self.__agents) + 1), 100, 50, 100)
-            self.__agents[agent_name] = {
+
+            self.__agents.append({
                 "location": location,
                 "carried_food": [],
                 "last_action": 0,
                 "spawn_location": location,
                 "carry_capacity": carry_capacity,
                 "color": color
-            }
+            })
 
         for _ in range(self.__nest_count):
             location = self.__get_new_random_location(excluded_locations, random)
@@ -76,6 +76,9 @@ class ScavengingAntEnv:
                 "location": location,
                 "spawn_location": location,
             })
+
+    def get_seed(self):
+        return self.__seed
 
     def __get_random_location(self, random: np.random.Generator) -> Location:
         return (
@@ -104,17 +107,20 @@ class ScavengingAntEnv:
             "food_locations": food_locations,
         }
 
-    def __get_states(self) -> Dict[str, State]:
-        states = {}
+    def __get_active_food_locations(self) -> FoodLocations:
         food_locations = []
-
         for food in self.__food:
-            if not food["deposited"]:
+            if not food["deposited"] and not food["carried"]:
                 food_locations.append(food["location"])
         food_locations = tuple(food_locations)
+        return food_locations
 
-        for agent_name, agent in self.__agents.items():
-            states[agent_name] = self.__get_state(agent, food_locations)
+    def __get_states(self) -> List[State]:
+        food_locations = self.__get_active_food_locations()
+        states = []
+
+        for agent in self.__agents:
+            states.append(self.__get_state(agent, food_locations))
 
         return states
 
@@ -130,7 +136,7 @@ class ScavengingAntEnv:
             food["carried"] = False
             food["location"] = food["spawn_location"]
 
-        for _, agent in self.__agents.items():
+        for agent in self.__agents:
             agent["location"] = agent["spawn_location"]
             agent["carried_food"].clear()
             agent["last_action"] = 0
@@ -157,7 +163,6 @@ class ScavengingAntEnv:
                     agent["carried_food"].append(food)
                     food["carried"] = True
                     return True
-
         return False
 
     def __deposit_food(self, agent: Agent, location: Location) -> bool:
@@ -170,7 +175,6 @@ class ScavengingAntEnv:
                         food["deposited"] = True
                     agent["carried_food"].clear()
                     return True
-
         return False
 
     def __get_food_deposited(self) -> int:
@@ -207,20 +211,17 @@ class ScavengingAntEnv:
 
         return reward if reward > 0 else -1
 
-    def step(self, selected_actions: Dict[AgentName, int]):
-        rewards: Dict[AgentName, int] = {}
-        for agent_name, agent in self.__agents.items():
-            action = selected_actions[agent_name]
-            rewards[agent_name] = self.__update_agent(agent, action)
+    def step(self, selected_actions: List[int]):
+        rewards: List[int] = []
+
+        for index, agent in enumerate(self.__agents):
+            action = selected_actions[index]
+            rewards.append(self.__update_agent(agent, action))
             agent["last_action"] = action
 
         terminated = self.__get_food_deposited() == len(self.__food)
-        terminations = {}
-        truncations = {}
-
-        for agent_name, agent in self.__agents.items():
-            terminations[agent_name] = terminated
-            truncations[agent_name] = False
+        terminations = [terminated for _ in range(len(self.__agents))]
+        truncations = [False for _ in range(len(self.__agents))]
 
         return (
             self.__get_states(),
@@ -230,51 +231,50 @@ class ScavengingAntEnv:
             {}
         )
 
+    def get_position_on_grid(self, location: Location, width: float) -> Tuple[float, float]:
+        return (
+            location[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - width / 2,
+            location[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - width / 2
+        )
+
+    def get_grid_width(self):
+        return self.__grid_width
+
+    def get_grid_height(self):
+        return self.__grid_height
+
+    def get_agent_color(self, index: int):
+        return self.__agents[index]["color"]
+
+    def get_agent_count(self):
+        return len(self.__agents)
+
     def __draw_nests(self, canvas):
         for nest in self.__nests:
-            image = pygame.image.load("../images/icons8-log-cabin-48.png")
-            position = nest["location"]
-            position = (
-                position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
-                position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
-            )
+            image = pygame.image.load("images/icons8-log-cabin-48.png")
+            position = self.get_position_on_grid(nest["location"], image.get_width())
             canvas.blit(image, position)
 
-    def get_agent_color(self, agent_name: AgentName):
-        return self.__agents[agent_name]["color"]
-
     def __draw_agents(self, canvas):
-        for agent_name, agent in self.__agents.items():
-            image = pygame.image.load(f"../images/icons8-ant-48.png")
-            image = change_image_color(image, self.get_agent_color(agent_name))
+        for agent in self.__agents:
+            image = pygame.image.load("images/icons8-ant-48.png")
+            image = change_image_color(image, agent["color"])
             rotation = ACTION_ROTATIONS[agent["last_action"]]
             image = pygame.transform.rotate(image, rotation)
-            position = agent["location"]
-            position = (
-                position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
-                position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
-            )
+            position = self.get_position_on_grid(agent["location"], image.get_width())
             canvas.blit(image, position)
 
     def __draw_food(self, canvas):
         for food in self.__food:
             if not food["deposited"]:
-                image = pygame.image.load("../images/icons8-whole-apple-48.png")
-                position = food["location"]
-                position = (
-                    position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
-                    position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
-                )
+                image = pygame.image.load("images/icons8-whole-apple-48.png")
+                position = self.get_position_on_grid(food["location"], image.get_width())
                 canvas.blit(image, position)
 
     def __draw_obstacles(self, canvas):
         for obstacle in self.__obstacles:
-            image = pygame.image.load("../images/icons8-obstacle-48.png")
-            position = obstacle["location"]
-            position = (
-                position[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_width() / 2,
-                position[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - image.get_height() / 2
-            )
+            image = pygame.image.load("images/icons8-obstacle-48.png")
+            position = self.get_position_on_grid(obstacle["location"], image.get_width())
             canvas.blit(image, position)
 
     def __draw_grass(self, canvas):
