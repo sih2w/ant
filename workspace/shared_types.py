@@ -12,15 +12,18 @@ Actions: TypeAlias = List[float]
 class Episode(TypedDict):
     steps: int
     rewards: List[int]
-    search_exchange_count: int
-    search_exchange_use_count: int
-    return_exchange_count: int
-    return_exchange_use_count: int
+    given_search_policies: int
+    given_return_policies: int
+    averaged_search_policies: int
+    averaged_return_policies: int
+    used_search_policies: int
+    used_return_policies: int
 
 
 class Policy(TypedDict):
     actions: Actions
-    shared: bool
+    given: bool
+    averaged: bool
     used: bool
 
 

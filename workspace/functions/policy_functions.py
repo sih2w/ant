@@ -10,7 +10,8 @@ from workspace.classes.environment import AGENT_ACTIONS
 def policy_factory() -> Policy:
     return {
         "actions": np.zeros(len(AGENT_ACTIONS)).tolist(),
-        "shared": False,
+        "averaged": False,
+        "given": False,
         "used": False
     }
 
@@ -85,19 +86,20 @@ def update_policy(
     old_policy["actions"][selected_action_index] += learning_rate_alpha * (target - predict)
     return None
 
+
 def update_policy_use(
         episode: Episode,
-        state: State,
-        agent_index: int,
+        states: List[State],
         state_actions: StateActions,
 ) -> None:
-    policy = get_policy(state_actions, agent_index, state)
-    if policy["shared"] and not policy["used"]:
+    for agent_index, state in enumerate(states):
+        policy = get_policy(state_actions, agent_index, state)
+        if not policy["used"] and (policy["averaged"] or policy["given"]):
+            if state["carrying_food"]:
+                episode["used_return_policies"] += 1
+            else:
+                episode["used_search_policies"] += 1
         policy["used"] = True
-        if state["carrying_food"]:
-            episode["return_exchange_use_count"] += 1
-        else:
-            episode["search_exchange_use_count"] += 1
     return None
 
 
@@ -146,14 +148,14 @@ def close_enough(
 def try_give_policy(source: Policy, target: Policy) -> bool:
     if not target["used"]:
         target["actions"] = copy.copy(source["actions"])
-        target["shared"] = True
+        target["given"] = True
         return True
     return False
 
 
 def average_policies(source: Policy, target: Policy) -> None:
-    source["shared"] = True
-    target["shared"] = True
+    source["averaged"] = True
+    target["averaged"] = True
     for index, value in enumerate(source["actions"]):
         source["actions"][index] = (value + target["actions"][index]) / 2
         target["actions"][index] = source["actions"][index]
@@ -211,7 +213,7 @@ def fill_policy_gaps(
 ) -> None:
     if agent_1_state["carrying_food"] and agent_2_state["carrying_food"]:
         # Agent 1 returning to nest. Agent 2 returning to nest.
-        episode["return_exchange_count"] += exchange_policy(
+        episode["averaged_return_policies"] += exchange_policy(
             source=get_return_gridded_policy(state_actions, agent_1_index),
             target=get_return_gridded_policy(state_actions, agent_2_index),
             average_both=True,
@@ -220,7 +222,7 @@ def fill_policy_gaps(
         )
     elif not agent_1_state["carrying_food"] and not agent_2_state["carrying_food"]:
         # Agent 1 searching for food. Agent 2 searching for food.
-        episode["search_exchange_count"] += exchange_policy(
+        episode["averaged_search_policies"] += exchange_policy(
             source=get_search_gridded_policy(state_actions, agent_1_index, agent_1_state["food_locations"]),
             target=get_search_gridded_policy(state_actions, agent_2_index, agent_2_state["food_locations"]),
             average_both=True,
@@ -229,7 +231,7 @@ def fill_policy_gaps(
         )
     elif not agent_1_state["carrying_food"] and agent_2_state["carrying_food"]:
         # Agent 1 searching for food. Agent 2 returning to nest.
-        episode["return_exchange_count"] += exchange_policy(
+        episode["given_return_policies"] += exchange_policy(
             source=get_return_gridded_policy(state_actions, agent_1_index),
             target=get_return_gridded_policy(state_actions, agent_2_index),
             average_both=False,
@@ -237,7 +239,7 @@ def fill_policy_gaps(
             grid_height=grid_height,
         )
 
-        episode["search_exchange_count"] += exchange_policy(
+        episode["given_search_policies"] += exchange_policy(
             source=get_search_gridded_policy(state_actions, agent_2_index, agent_2_state["food_locations"]),
             target=get_search_gridded_policy(state_actions, agent_1_index, agent_1_state["food_locations"]),
             average_both=False,
@@ -246,7 +248,7 @@ def fill_policy_gaps(
         )
     else:
         # Agent 1 returning to nest. Agent 2 searching for food.
-        episode["return_exchange_count"] += exchange_policy(
+        episode["given_return_policies"] += exchange_policy(
             source=get_return_gridded_policy(state_actions, agent_2_index),
             target=get_return_gridded_policy(state_actions, agent_1_index),
             average_both=False,
@@ -254,7 +256,7 @@ def fill_policy_gaps(
             grid_height=grid_height,
         )
 
-        episode["search_exchange_count"] += exchange_policy(
+        episode["given_search_policies"] += exchange_policy(
             source=get_search_gridded_policy(state_actions, agent_1_index, agent_1_state["food_locations"]),
             target=get_search_gridded_policy(state_actions, agent_2_index, agent_2_state["food_locations"]),
             average_both=False,

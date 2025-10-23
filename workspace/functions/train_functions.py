@@ -32,10 +32,12 @@ def train(
         episode: Episode = {
             "steps": 0,
             "rewards": [0 for _ in range(environment.get_agent_count())],
-            "search_exchange_count": 0,
-            "return_exchange_count": 0,
-            "return_exchange_use_count": 0,
-            "search_exchange_use_count": 0
+            "given_search_policies": 0,
+            "given_return_policies": 0,
+            "averaged_search_policies": 0,
+            "averaged_return_policies": 0,
+            "used_search_policies": 0,
+            "used_return_policies": 0
         }
 
         terminations: List[bool] = []
@@ -47,6 +49,12 @@ def train(
                 states=states,
                 epsilon=epsilon,
                 rng=rng
+            )
+
+            update_policy_use(
+                episode=episode,
+                states=states,
+                state_actions=state_actions
             )
 
             new_states, rewards, terminations, truncations, infos = environment.step(selected_actions)
@@ -74,14 +82,6 @@ def train(
                     grid_height=environment.get_grid_height(),
                     agent_vision_radius=agent_vision_radius
                 )
-
-                for index in range(environment.get_agent_count()):
-                    update_policy_use(
-                        episode=episode,
-                        state=states[index],
-                        agent_index=index,
-                        state_actions=state_actions
-                    )
 
             episode["steps"] += 1
             states = new_states

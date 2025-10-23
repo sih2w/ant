@@ -5,11 +5,11 @@ from workspace.functions.draw_functions import test
 from workspace.functions.train_functions import train
 from workspace.functions.data_functions import load_data, save_data
 
-EPISODE_COUNT = 10000
+EPISODE_COUNT = 100
 SEED = 0
-EXCHANGE_INFO = False
-GRID_WIDTH = 30
-GRID_HEIGHT = 20
+EXCHANGE_INFO = True
+GRID_WIDTH = 10
+GRID_HEIGHT = 15
 AGENT_COUNT = 3
 FOOD_COUNT = 5
 OBSTACLE_COUNT = 20
@@ -26,10 +26,10 @@ DISCOUNT_FACTOR_GAMMA = 0.90
 
 
 SQUARE_PIXEL_WIDTH = 40
-EPISODE_AVERAGE_STEP = 100
+EPISODE_AVERAGE_STEP = 10
 DRAW_ARROWS = True
 SHOW_AFTER_TRAINING = True
-SAVE_AFTER_TRAINING = True
+SAVE_AFTER_TRAINING = False
 
 
 SAVE_DIRECTORY = "runs"
@@ -81,8 +81,7 @@ if __name__ == "__main__":
 
     plot_episode_data(
         episode_data=episode_data,
-        episode_average_step=EPISODE_AVERAGE_STEP,
-        agent_count=AGENT_COUNT,
+        episode_average_step=EPISODE_AVERAGE_STEP
     )
 
     if SHOW_AFTER_TRAINING:
