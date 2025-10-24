@@ -12,4 +12,5 @@ def has_episode_ended(
         for truncation in truncations:
             if truncation:
                 return True
+
     return False

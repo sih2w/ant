@@ -27,6 +27,7 @@ def create_grid(
         for column in range(grid_width):
             new_row.append(callback())
         grid.append(new_row)
+
     return grid
 
 
@@ -50,6 +51,7 @@ def get_policy(
         source = state_actions["searching"][agent_index][state["food_locations"]]
         agent_location = state["agent_location"]
         policy = source[agent_location[1]][agent_location[0]]
+
     return policy
 
 
@@ -84,6 +86,7 @@ def update_policy(
     target = reward + discount_factor_gamma * np.max(new_policy["actions"])
 
     old_policy["actions"][selected_action_index] += learning_rate_alpha * (target - predict)
+
     return None
 
 
@@ -100,6 +103,7 @@ def update_policy_use(
             else:
                 episode["used_search_policies"] += 1
         policy["used"] = True
+
     return None
 
 
@@ -111,6 +115,7 @@ def get_decided_actions(
     for agent_index, state in enumerate(states):
         actions = get_policy(state_actions, agent_index, state)["actions"]
         decided_actions.append(int(np.argmax(actions)))
+
     return decided_actions
 
 
@@ -131,6 +136,7 @@ def get_training_actions(
                 epsilon=epsilon
             )
         )
+
     return training_actions
 
 
@@ -142,6 +148,7 @@ def close_enough(
     dx = agent_1_location[0] - agent_2_location[0]
     dy = agent_1_location[1] - agent_2_location[1]
     distance = math.floor(math.hypot(dx, dy))
+
     return distance <= agent_vision_radius
 
 
@@ -150,6 +157,7 @@ def try_give_policy(source: Policy, target: Policy) -> bool:
         target["actions"] = copy.copy(source["actions"])
         target["given"] = True
         return True
+
     return False
 
 
@@ -159,6 +167,7 @@ def average_policies(source: Policy, target: Policy) -> None:
     for index, value in enumerate(source["actions"]):
         source["actions"][index] = (value + target["actions"][index]) / 2
         target["actions"][index] = source["actions"][index]
+
     return None
 
 
@@ -198,6 +207,7 @@ def exchange_policy(
                 success = try_give_policy(source_policy, target_policy)
                 if success:
                     exchange_count += 1
+
     return exchange_count
 
 
@@ -294,4 +304,5 @@ def exchange(
                     grid_width=grid_width,
                     grid_height=grid_height,
                 )
+
     return None

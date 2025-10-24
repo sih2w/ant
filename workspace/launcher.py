@@ -5,13 +5,13 @@ from workspace.functions.draw_functions import test
 from workspace.functions.train_functions import train
 from workspace.functions.data_functions import load_data, save_data
 
-EPISODE_COUNT = 100
+EPISODE_COUNT = 10000
 SEED = 0
 EXCHANGE_INFO = True
 GRID_WIDTH = 10
 GRID_HEIGHT = 15
 AGENT_COUNT = 3
-FOOD_COUNT = 5
+FOOD_COUNT = 30
 OBSTACLE_COUNT = 20
 NEST_COUNT = 1
 AGENT_VISION_RADIUS = 0

@@ -19,6 +19,7 @@ def draw_arrow(
     position = environment.get_position_on_grid(agent_location, image.get_width())
     image = pygame.transform.rotate(image, rotation)
     canvas.blit(image, position)
+
     return None
 
 
@@ -42,6 +43,7 @@ def draw_arrows(
                 agent_location=agent_location,
                 canvas=canvas,
             )
+
     return None
 
 
@@ -69,6 +71,7 @@ def draw(
     window.blit(canvas, canvas.get_rect())
     pygame.event.pump()
     pygame.display.flip()
+
     return None
 
 
@@ -76,6 +79,7 @@ def init_pygame() -> None:
     pygame.init()
     pygame.display.set_caption("Q-Learning Ants")
     pygame.display.set_icon(pygame.image.load("images/icons8-ant-48.png"))
+
     return None
 
 
@@ -167,4 +171,5 @@ def test(
 
     pygame.display.quit()
     pygame.quit()
+
     return None

@@ -1,3 +1,4 @@
+from typing import Dict
 from matplotlib import pyplot as plt
 from workspace.shared_types import *
 
@@ -52,50 +53,29 @@ def average_episode_data(
     return new_episode_data
 
 
-def plot_exchange_sums(
-        given_search_policies: List[int],
-        given_return_policies: List[int],
-        averaged_search_policies: List[int],
-        averaged_return_policies: List[int],
-) -> None:
-    categories = [
-        "Given Search",
-        "Given Return",
-        "Avg Search",
-        "Avg Return",
-    ]
-    values = [
-        sum(given_search_policies),
-        sum(given_return_policies),
-        sum(averaged_search_policies),
-        sum(averaged_return_policies),
-    ]
-
-    plt.bar(categories, values)
+def plot_exchange_sums(exchanges: Dict[str, List[int]]) -> None:
+    keys, values = [], []
+    for key, value in exchanges.items():
+        keys.append(key)
+        values.append(sum(value))
+    plt.bar(keys, values)
     plt.title("Exchanges")
     plt.show()
+
     return None
 
 
 def plot_exchanges_per_episode(
         episodes: List[int],
-        given_search_policies: List[int],
-        given_return_policies: List[int],
-        averaged_search_policies: List[int],
-        averaged_return_policies: List[int],
-        used_search_policies: List[int],
-        used_return_policies: List[int],
+        exchanges: Dict[str, List[int]]
 ) -> None:
-    plt.plot(episodes, given_search_policies, color="red", label="Search Policies Given")
-    plt.plot(episodes, given_return_policies, color="blue", label="Return Policies Given")
-    plt.plot(episodes, averaged_search_policies, color="green", label="Averaged Search Policies")
-    plt.plot(episodes, averaged_return_policies, color="purple", label="Averaged Return Policies")
-    plt.plot(episodes, used_search_policies, color="yellow", label="Search Policies Used")
-    plt.plot(episodes, used_return_policies, color="orange", label="Return Policies Used")
+    for key, value in exchanges.items():
+        plt.plot(episodes, value, label=key)
     plt.title("Exchanges Per Episode")
     plt.xlabel("Episodes")
     plt.legend()
     plt.show()
+
     return None
 
 
@@ -103,29 +83,17 @@ def plot_exchanges(
         episode_data: List[Episode],
         episodes: List[int],
 ) -> None:
-    given_search_policies = [episode["given_search_policies"] for episode in episode_data]
-    given_return_policies = [episode["given_return_policies"] for episode in episode_data]
-    averaged_search_policies = [episode["averaged_search_policies"] for episode in episode_data]
-    averaged_return_policies = [episode["averaged_return_policies"] for episode in episode_data]
-    used_search_policies = [episode["used_search_policies"] for episode in episode_data]
-    used_return_policies = [episode["used_return_policies"] for episode in episode_data]
+    exchanges: Dict[str, List[int]] = {
+        "GSP": [episode["given_search_policies"] for episode in episode_data],
+        "GRP": [episode["given_return_policies"] for episode in episode_data],
+        # "AvgSP": [episode["averaged_search_policies"] for episode in episode_data],
+        # "AvgRP": [episode["averaged_return_policies"] for episode in episode_data],
+        "USP": [episode["used_search_policies"] for episode in episode_data],
+        "URP": [episode["used_return_policies"] for episode in episode_data]
+    }
 
-    plot_exchanges_per_episode(
-        episodes=episodes,
-        given_search_policies=given_search_policies,
-        given_return_policies=given_return_policies,
-        averaged_search_policies=averaged_search_policies,
-        averaged_return_policies=averaged_return_policies,
-        used_search_policies=used_search_policies,
-        used_return_policies=used_return_policies,
-    )
-
-    plot_exchange_sums(
-        given_search_policies=given_search_policies,
-        given_return_policies=given_return_policies,
-        averaged_search_policies=averaged_search_policies,
-        averaged_return_policies=averaged_return_policies,
-    )
+    plot_exchanges_per_episode(episodes, exchanges)
+    plot_exchange_sums(exchanges)
 
     return None
 
@@ -139,6 +107,7 @@ def plot_steps_per_episode(
     plt.title("Steps")
     plt.xlabel(f"Episodes")
     plt.show()
+
     return None
 
 
@@ -156,6 +125,7 @@ def plot_rewards_per_episode(
     plt.title("Rewards")
     plt.xlabel(f"Episodes")
     plt.show()
+
     return None
 
 def plot_episode_data(
@@ -168,3 +138,5 @@ def plot_episode_data(
     plot_exchanges(episode_data, episodes)
     plot_steps_per_episode(episode_data, episodes)
     plot_rewards_per_episode(episode_data, episodes)
+
+    return None
