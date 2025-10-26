@@ -1,7 +1,7 @@
 import copy
 from workspace.classes.environment import ScavengingAntEnv, ACTION_ROTATIONS
-from workspace.functions.pygame_functions import *
-from workspace.shared_types import *
+from workspace.functions.pygame_functions import change_image_color
+from workspace.types import *
 from workspace.functions.policy_functions import get_decided_actions
 from workspace.functions.episode_functions import has_episode_ended
 
@@ -31,11 +31,14 @@ def draw_arrows(
         canvas: pygame.Surface,
 ) -> None:
     states = copy.deepcopy(states)
+    grid_width = environment.get_grid_width()
+    grid_height = environment.get_grid_height()
+
     for row in range(environment.get_grid_height()):
         for column in range(environment.get_grid_width()):
             agent_location = (column, row)
             states[agent_index]["agent_location"] = agent_location
-            agent_actions = get_decided_actions(state_actions, states)
+            agent_actions = get_decided_actions(state_actions, states, grid_width, grid_height)
             draw_arrow(
                 environment=environment,
                 action_index=agent_actions[agent_index],
@@ -103,6 +106,9 @@ def test(
     stepping_enabled = False
     stepping = False
 
+    grid_width = environment.get_grid_width()
+    grid_height = environment.get_grid_height()
+
     while running:
         states, _ = environment.reset()
         terminations, truncations = {}, {}
@@ -122,7 +128,7 @@ def test(
 
             if draw_next_step:
                 stepping = True
-                agent_actions = get_decided_actions(state_actions, states)
+                agent_actions = get_decided_actions(state_actions, states, grid_width, grid_height)
                 states, rewards, terminations, truncations, info = environment.step(agent_actions)
 
             if draw_next_step or switching_agent:

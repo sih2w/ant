@@ -1,56 +1,47 @@
-from typing import Dict
 from matplotlib import pyplot as plt
-from workspace.shared_types import *
-
+from workspace.types import *
+from workspace.functions.episode_functions import episode_factory
+from workspace.enums import EpisodeAttribute
 
 def average_episode_data(
-        episode_data: List[Episode],
-        episode_average_step: int
+        episodes: List[Episode],
+        episode_average_step: int,
+        agent_count: int
 ) -> List[Episode]:
-    new_episode_data = []
-    for current in range(0, len(episode_data), episode_average_step):
-        episode_sum: Episode = {
-            "steps": 0,
-            "given_search_policies": 0,
-            "given_return_policies": 0,
-            "averaged_search_policies": 0,
-            "averaged_return_policies": 0,
-            "used_search_policies": 0,
-            "used_return_policies": 0,
-            "rewards": [0 for _ in range(len(episode_data[current]["rewards"]))],
-        }
-
+    new_episodes = []
+    for current in range(0, len(episodes), episode_average_step):
         count = 0
         start = max(0, current - episode_average_step)
-        end = min(current, len(episode_data))
+        end = min(current, len(episodes))
+        episode_sum: Episode = episode_factory(agent_count)
 
         for previous in range(start, end):
-            episode: Episode = episode_data[previous]
-            episode_sum["steps"] += episode["steps"]
-            episode_sum["given_search_policies"] += episode["given_search_policies"]
-            episode_sum["given_return_policies"] += episode["given_return_policies"]
-            episode_sum["averaged_search_policies"] += episode["averaged_search_policies"]
-            episode_sum["averaged_return_policies"] += episode["averaged_return_policies"]
-            episode_sum["used_search_policies"] += episode["used_search_policies"]
-            episode_sum["used_return_policies"] += episode["used_return_policies"]
+            episode: Episode = episodes[previous]
+            episode_sum[EpisodeAttribute.STEPS.value] += episode[EpisodeAttribute.STEPS.value]
+            episode_sum[EpisodeAttribute.GIVEN_SEARCH_POLICIES.value] += episode[EpisodeAttribute.GIVEN_SEARCH_POLICIES.value]
+            episode_sum[EpisodeAttribute.GIVEN_RETURN_POLICIES.value] += episode[EpisodeAttribute.GIVEN_RETURN_POLICIES.value]
+            episode_sum[EpisodeAttribute.AVERAGED_SEARCH_POLICIES.value] += episode[EpisodeAttribute.AVERAGED_SEARCH_POLICIES.value]
+            episode_sum[EpisodeAttribute.AVERAGED_RETURN_POLICIES.value] += episode[EpisodeAttribute.AVERAGED_RETURN_POLICIES.value]
+            episode_sum[EpisodeAttribute.USED_SEARCH_POLICIES.value] += episode[EpisodeAttribute.USED_SEARCH_POLICIES.value]
+            episode_sum[EpisodeAttribute.USED_RETURN_POLICIES.value] += episode[EpisodeAttribute.USED_RETURN_POLICIES.value]
+            for index, reward in enumerate(episode[EpisodeAttribute.REWARDS.value]):
+                episode_sum[EpisodeAttribute.REWARDS.value][index] += reward
             count += 1
 
-            for index, reward in enumerate(episode["rewards"]):
-                episode_sum["rewards"][index] += reward
-
         if count > 0:
-            new_episode_data.append({
-                "steps": round(episode_sum["steps"] / count),
-                "given_search_policies": round(episode_sum["given_search_policies"] / count),
-                "given_return_policies": round(episode_sum["given_return_policies"] / count),
-                "averaged_search_policies": round(episode_sum["averaged_search_policies"] / count),
-                "averaged_return_policies": round(episode_sum["averaged_return_policies"] / count),
-                "used_search_policies": round(episode_sum["used_search_policies"] / count),
-                "used_return_policies": round(episode_sum["used_return_policies"] / count),
-                "rewards": [round(total_reward / count) for total_reward in episode_sum["rewards"]]
-            })
+            episode_average = episode_factory(agent_count)
+            episode_average[EpisodeAttribute.STEPS.value] = round(episode_sum[EpisodeAttribute.STEPS.value] / count)
+            episode_average[EpisodeAttribute.GIVEN_SEARCH_POLICIES.value] = round(episode_sum[EpisodeAttribute.GIVEN_SEARCH_POLICIES.value] / count)
+            episode_average[EpisodeAttribute.GIVEN_RETURN_POLICIES.value] = round(episode_sum[EpisodeAttribute.GIVEN_RETURN_POLICIES.value] / count)
+            episode_average[EpisodeAttribute.AVERAGED_SEARCH_POLICIES.value] = round(episode_sum[EpisodeAttribute.AVERAGED_SEARCH_POLICIES.value] / count)
+            episode_average[EpisodeAttribute.AVERAGED_RETURN_POLICIES.value] = round(episode_sum[EpisodeAttribute.AVERAGED_RETURN_POLICIES.value] / count)
+            episode_average[EpisodeAttribute.USED_SEARCH_POLICIES.value] = round(episode_sum[EpisodeAttribute.USED_SEARCH_POLICIES.value] / count)
+            episode_average[EpisodeAttribute.USED_RETURN_POLICIES.value] = round(episode_sum[EpisodeAttribute.USED_RETURN_POLICIES.value] / count)
+            for index, reward in enumerate(episode_sum[EpisodeAttribute.REWARDS.value]):
+                episode_average[EpisodeAttribute.REWARDS.value][index] = round(reward / count)
+            new_episodes.append(episode_average)
 
-    return new_episode_data
+    return new_episodes
 
 
 def plot_exchange_sums(exchanges: Dict[str, List[int]]) -> None:
@@ -66,11 +57,11 @@ def plot_exchange_sums(exchanges: Dict[str, List[int]]) -> None:
 
 
 def plot_exchanges_per_episode(
-        episodes: List[int],
+        episode_numbers: List[int],
         exchanges: Dict[str, List[int]]
 ) -> None:
     for key, value in exchanges.items():
-        plt.plot(episodes, value, label=key)
+        plt.plot(episode_numbers, value, label=key)
     plt.title("Exchanges Per Episode")
     plt.xlabel("Episodes")
     plt.legend()
@@ -80,30 +71,30 @@ def plot_exchanges_per_episode(
 
 
 def plot_exchanges(
-        episode_data: List[Episode],
-        episodes: List[int],
+        episodes: List[Episode],
+        episode_numbers: List[int],
 ) -> None:
     exchanges: Dict[str, List[int]] = {
-        "GSP": [episode["given_search_policies"] for episode in episode_data],
-        "GRP": [episode["given_return_policies"] for episode in episode_data],
-        # "AvgSP": [episode["averaged_search_policies"] for episode in episode_data],
-        # "AvgRP": [episode["averaged_return_policies"] for episode in episode_data],
-        "USP": [episode["used_search_policies"] for episode in episode_data],
-        "URP": [episode["used_return_policies"] for episode in episode_data]
+        "GSP": [episode[EpisodeAttribute.GIVEN_SEARCH_POLICIES.value] for episode in episodes],
+        "GRP": [episode[EpisodeAttribute.GIVEN_RETURN_POLICIES.value] for episode in episodes],
+        "AvgSP": [episode[EpisodeAttribute.AVERAGED_SEARCH_POLICIES.value] for episode in episodes],
+        "AvgRP": [episode[EpisodeAttribute.AVERAGED_RETURN_POLICIES.value] for episode in episodes],
+        "USP": [episode[EpisodeAttribute.USED_SEARCH_POLICIES.value] for episode in episodes],
+        "URP": [episode[EpisodeAttribute.USED_RETURN_POLICIES.value] for episode in episodes]
     }
 
-    plot_exchanges_per_episode(episodes, exchanges)
+    plot_exchanges_per_episode(episode_numbers, exchanges)
     plot_exchange_sums(exchanges)
 
     return None
 
 
 def plot_steps_per_episode(
-        episode_data: List[Episode],
-        episodes: List[int],
+        episodes: List[Episode],
+        episode_numbers: List[int],
 ) -> None:
-    steps = [episode["steps"] for episode in episode_data]
-    plt.plot(episodes, steps, color="green")
+    steps = [episode[EpisodeAttribute.STEPS.value] for episode in episodes]
+    plt.plot(episode_numbers, steps, color="green")
     plt.title("Steps")
     plt.xlabel(f"Episodes")
     plt.show()
@@ -112,15 +103,16 @@ def plot_steps_per_episode(
 
 
 def plot_rewards_per_episode(
-        episode_data: List[Episode],
-        episodes: List[int],
+        episodes: List[Episode],
+        episode_numbers: List[int],
+        agent_count: int,
 ) -> None:
-    episode_rewards = [episode["rewards"] for episode in episode_data]
-    for index in range(len(episode_rewards[0])):
+    episode_rewards = [episode[EpisodeAttribute.REWARDS.value] for episode in episodes]
+    for index in range(agent_count):
         rewards = []
         for reward in episode_rewards:
             rewards.append(reward[index])
-        plt.plot(episodes, rewards)
+        plt.plot(episode_numbers, rewards)
 
     plt.title("Rewards")
     plt.xlabel(f"Episodes")
@@ -128,15 +120,16 @@ def plot_rewards_per_episode(
 
     return None
 
-def plot_episode_data(
-        episode_data: List[Episode],
+def plot_episodes(
+        episodes: List[Episode],
         episode_average_step: int,
+        agent_count: int,
 ) -> None:
-    episode_data = average_episode_data(episode_data, episode_average_step)
-    episodes = [episode * episode_average_step for episode in range(len(episode_data))]
+    episodes = average_episode_data(episodes, episode_average_step, agent_count)
+    episode_numbers = [episode * episode_average_step for episode in range(len(episodes))]
 
-    plot_exchanges(episode_data, episodes)
-    plot_steps_per_episode(episode_data, episodes)
-    plot_rewards_per_episode(episode_data, episodes)
+    plot_exchanges(episodes, episode_numbers)
+    plot_steps_per_episode(episodes, episode_numbers)
+    plot_rewards_per_episode(episodes, episode_numbers, agent_count)
 
     return None

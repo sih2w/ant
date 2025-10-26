@@ -1,38 +1,19 @@
-from typing import List, Tuple, TypeAlias, TypedDict, DefaultDict, TypeVar
+from typing import List, Tuple, TypeAlias, TypedDict, DefaultDict, TypeVar, Dict
 import pygame
-
 
 T = TypeVar("T")
 Used: TypeAlias = bool or None
 Location: TypeAlias = Tuple[int, int]
 FoodLocations: TypeAlias = Tuple[Location, ...]
 Actions: TypeAlias = List[float]
-
-
-class Episode(TypedDict):
-    steps: int
-    rewards: List[int]
-    given_search_policies: int
-    given_return_policies: int
-    averaged_search_policies: int
-    averaged_return_policies: int
-    used_search_policies: int
-    used_return_policies: int
-
-
-class Policy(TypedDict):
-    actions: Actions
-    given: bool
-    averaged: bool
-    used: bool
-
-
+Episode: TypeAlias = List
+Policy: TypeAlias = List
 GriddedPolicy: TypeAlias = List[List[Policy]]
 
 
 class StateActions(TypedDict):
-    returning: DefaultDict[int, List[List[Policy]]]
-    searching: DefaultDict[int, DefaultDict[FoodLocations, List[List[Policy]]]]
+    returning: List[List[List[Policy]]]
+    searching: List[Dict[FoodLocations, List[List[Policy]]]]
 
 
 class State(TypedDict):

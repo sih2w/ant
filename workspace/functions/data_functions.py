@@ -1,5 +1,5 @@
 import dill
-from workspace.shared_types import *
+from workspace.types import *
 
 
 def load_data(directory: str, file_name: str) -> Tuple[StateActions, List[Episode]]:

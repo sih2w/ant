@@ -1,30 +1,30 @@
 import os
 from workspace.classes.environment import ScavengingAntEnv
-from workspace.functions.plot_functions import plot_episode_data
+from workspace.functions.plot_functions import plot_episodes
 from workspace.functions.draw_functions import test
 from workspace.functions.train_functions import train
 from workspace.functions.data_functions import load_data, save_data
 
-EPISODE_COUNT = 10000
+EPISODE_COUNT = 100
 SEED = 0
 EXCHANGE_INFO = True
 GRID_WIDTH = 10
-GRID_HEIGHT = 15
+GRID_HEIGHT = 10
 AGENT_COUNT = 3
-FOOD_COUNT = 30
-OBSTACLE_COUNT = 20
+FOOD_COUNT = 10
+OBSTACLE_COUNT = 5
 NEST_COUNT = 1
 AGENT_VISION_RADIUS = 0
 CARRY_CAPACITY = 1
 
 
-EPSILON_START = 1.00
-EPSILON_DECAY_RATE = EPSILON_START / (EPISODE_COUNT / 2)
+EPSILON_DECAY_RATE = 1 / (EPISODE_COUNT / 2)
 EPSILON_MIN = 0.01
 LEARNING_RATE_ALPHA = 0.50
 DISCOUNT_FACTOR_GAMMA = 0.90
 
 
+WORKER_COUNT = 1
 SQUARE_PIXEL_WIDTH = 40
 EPISODE_AVERAGE_STEP = 10
 DRAW_ARROWS = True
@@ -74,14 +74,16 @@ if __name__ == "__main__":
             discount_factor_gamma=DISCOUNT_FACTOR_GAMMA,
             learning_rate_alpha=LEARNING_RATE_ALPHA,
             agent_vision_radius=AGENT_VISION_RADIUS,
+            worker_count=WORKER_COUNT
         )
 
         if SAVE_AFTER_TRAINING:
             save_data(SAVE_DIRECTORY, FILE_NAME, state_actions, episode_data)
 
-    plot_episode_data(
-        episode_data=episode_data,
-        episode_average_step=EPISODE_AVERAGE_STEP
+    plot_episodes(
+        episodes=episode_data,
+        episode_average_step=EPISODE_AVERAGE_STEP,
+        agent_count=AGENT_COUNT,
     )
 
     if SHOW_AFTER_TRAINING:

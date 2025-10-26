@@ -1,95 +1,219 @@
+import copy
+import multiprocessing as mp
 import numpy as np
 from tqdm import tqdm
 from workspace.classes.environment import ScavengingAntEnv
-from workspace.shared_types import *
+from workspace.types import *
 from workspace.functions.policy_functions import get_training_actions, update_policy_use, exchange
-from workspace.functions.episode_functions import has_episode_ended
-from workspace.functions.policy_functions import update_policy, state_actions_factory
+from workspace.functions.episode_functions import has_episode_ended,episode_factory
+from workspace.functions.policy_functions import update_policy, state_actions_factory, gridded_policy_factory, state_actions_factory
+from workspace.enums import EpisodeAttribute
+from multiprocessing import Process
+
+
+def average_gridded_policies(
+        gridded_policies: List[GriddedPolicy],
+        grid_width: int,
+        grid_height: int,
+) -> GriddedPolicy:
+    average = gridded_policy_factory(grid_width, grid_height)
+    for row in range(grid_height):
+        for column in range(grid_width):
+            average[row][column] = [0.00] * 4
+            for policy in gridded_policies[row][column]:
+                for index, value in enumerate(policy):
+                    average[row][column][index] += value
+            for index, value in enumerate(average[row][column]):
+                average[row][column][index] /= len(gridded_policies[row][column])
+
+    return average
+
+
+def average_state_actions(
+        state_actions_list: List[StateActions],
+        grid_width: int,
+        grid_height: int,
+        agent_count: int,
+) -> StateActions:
+    return state_actions_list[0]
+
+
+def average_episodes(episodes: List[List[Episode]]) -> List[Episode]:
+    return episodes[0]
+
+
+def train_episode(
+        environment: ScavengingAntEnv,
+        discount_factor_gamma: float,
+        learning_rate_alpha: float,
+        epsilon: float,
+        exchange_info: bool,
+        agent_vision_radius: float,
+        state_actions: StateActions,
+        rng: np.random.Generator,
+) -> Episode:
+    states, _ = environment.reset()
+    terminations, truncations = [], []
+    grid_width = environment.get_grid_width()
+    grid_height = environment.get_grid_height()
+
+    episode: Episode = episode_factory(environment.get_agent_count())
+
+    while not has_episode_ended(terminations, truncations):
+        selected_actions: List[int] = get_training_actions(
+            state_actions=state_actions,
+            states=states,
+            epsilon=epsilon,
+            rng=rng,
+            grid_height=grid_height,
+            grid_width=grid_width,
+        )
+
+        update_policy_use(
+            episode=episode,
+            states=states,
+            state_actions=state_actions,
+            grid_width=grid_width,
+            grid_height=grid_height,
+        )
+
+        new_states, rewards, terminations, truncations, infos = environment.step(selected_actions)
+        for index, reward in enumerate(rewards):
+            episode[EpisodeAttribute.REWARDS.value][index] += reward
+
+        for index, new_state in enumerate(new_states):
+            update_policy(
+                state_actions=state_actions,
+                agent_index=index,
+                old_state=states[index],
+                new_state=new_state,
+                selected_action_index=selected_actions[index],
+                reward=rewards[index],
+                discount_factor_gamma=discount_factor_gamma,
+                learning_rate_alpha=learning_rate_alpha,
+                grid_width=grid_width,
+                grid_height=grid_height,
+            )
+
+        if exchange_info:
+            exchange(
+                state_actions=state_actions,
+                states=new_states,
+                episode=episode,
+                grid_width=environment.get_grid_width(),
+                grid_height=environment.get_grid_height(),
+                agent_vision_radius=agent_vision_radius
+            )
+
+        episode[EpisodeAttribute.STEPS.value] += 1
+        states = new_states
+
+    return episode
+
+
+def train_parallel(
+        environment: ScavengingAntEnv,
+        episode_count: int,
+        worker_index: int,
+        discount_factor_gamma: float,
+        learning_rate_alpha: float,
+        epsilon_decay_rate: float,
+        epsilon_min: float,
+        exchange_info: bool,
+        agent_vision_radius: float,
+        worker_state_actions: List[StateActions],
+        worker_episodes: List[List[Episode]],
+):
+    rng = np.random.default_rng(seed=environment.get_seed() + worker_index)
+    environment = copy.deepcopy(environment)
+    epsilon = 1.00
+
+    episodes: List[Episode] = []
+    state_actions = state_actions_factory(
+        grid_width=environment.get_grid_width(),
+        grid_height=environment.get_grid_height(),
+        agent_count=environment.get_agent_count()
+    )
+
+    progress_bar = tqdm(
+        total=episode_count,
+        desc=f"Training [Worker {worker_index}]"
+    )
+
+    for current_episode in range(episode_count):
+        episode = train_episode(
+            environment=environment,
+            discount_factor_gamma=discount_factor_gamma,
+            learning_rate_alpha=learning_rate_alpha,
+            epsilon=epsilon,
+            exchange_info=exchange_info,
+            agent_vision_radius=agent_vision_radius,
+            state_actions=state_actions,
+            rng=rng,
+        )
+
+        epsilon = max(epsilon - epsilon_decay_rate, epsilon_min)
+        progress_bar.update(1)
+        episodes.append(episode)
+
+    progress_bar.close()
+
+    worker_episodes[worker_index] = episodes
+    worker_state_actions[worker_index] = state_actions
 
 
 def train(
         environment: ScavengingAntEnv,
-        episode_count: int = 100,
-        exchange_info: bool = True,
-        epsilon_decay_rate: float = 0.00001,
-        epsilon_min: float = 0.01,
-        discount_factor_gamma: float = 0.99,
-        learning_rate_alpha: float = 0.1,
-        agent_vision_radius: float = 1.0,
+        episode_count: int,
+        exchange_info: bool,
+        epsilon_decay_rate: float,
+        epsilon_min: float,
+        discount_factor_gamma: float,
+        learning_rate_alpha: float,
+        agent_vision_radius: float,
+        worker_count: int,
 ) -> Tuple[StateActions, List[Episode]]:
-    state_actions: StateActions = state_actions_factory(
-        environment.get_grid_width(),
-        environment.get_grid_height()
-    )
+    agent_count = environment.get_agent_count()
+    grid_width = environment.get_grid_width()
+    grid_height = environment.get_grid_height()
 
-    episode_data: List[Episode] = []
-    epsilon = 1
-    rng = np.random.default_rng(seed=environment.get_seed())
-    progress_bar = tqdm(total=episode_count, desc="Training")
+    workers: List[Process] = []
 
-    for _ in range(episode_count):
-        states, _ = environment.reset()
-        episode: Episode = {
-            "steps": 0,
-            "rewards": [0 for _ in range(environment.get_agent_count())],
-            "given_search_policies": 0,
-            "given_return_policies": 0,
-            "averaged_search_policies": 0,
-            "averaged_return_policies": 0,
-            "used_search_policies": 0,
-            "used_return_policies": 0
-        }
+    manager = mp.Manager()
+    worker_state_actions = manager.list(range(agent_count))
+    worker_episodes = manager.list(range(agent_count))
 
-        terminations: List[bool] = []
-        truncations: List[bool] = []
-
-        while not has_episode_ended(terminations, truncations):
-            selected_actions: List[int] = get_training_actions(
-                state_actions=state_actions,
-                states=states,
-                epsilon=epsilon,
-                rng=rng
-            )
-
-            update_policy_use(
-                episode=episode,
-                states=states,
-                state_actions=state_actions
-            )
-
-            new_states, rewards, terminations, truncations, infos = environment.step(selected_actions)
-            for index, reward in enumerate(rewards):
-                episode["rewards"][index] += reward
-
-            for index, new_state in enumerate(new_states):
-                update_policy(
-                    state_actions=state_actions,
-                    agent_index=index,
-                    old_state=states[index],
-                    new_state=new_state,
-                    selected_action_index=selected_actions[index],
-                    reward=rewards[index],
-                    discount_factor_gamma=discount_factor_gamma,
-                    learning_rate_alpha=learning_rate_alpha,
+    for worker_index in range(worker_count):
+        workers.append(
+            Process(
+                target=train_parallel,
+                args=(
+                    environment,
+                    episode_count,
+                    worker_index,
+                    discount_factor_gamma,
+                    learning_rate_alpha,
+                    epsilon_decay_rate,
+                    epsilon_min,
+                    exchange_info,
+                    agent_vision_radius,
+                    worker_state_actions,
+                    worker_episodes
                 )
+            )
+        )
 
-            if exchange_info:
-                exchange(
-                    state_actions=state_actions,
-                    states=new_states,
-                    episode=episode,
-                    grid_width=environment.get_grid_width(),
-                    grid_height=environment.get_grid_height(),
-                    agent_vision_radius=agent_vision_radius
-                )
+    for worker in workers:
+        worker.start()
 
-            episode["steps"] += 1
-            states = new_states
+    for worker in workers:
+        worker.join()
+        worker.close()
 
-        epsilon = max(epsilon - epsilon_decay_rate, epsilon_min)
-        progress_bar.update(1)
-        episode_data.append(episode)
+    if worker_count == 1:
+        return worker_state_actions[0], worker_episodes[0]
 
-    progress_bar.close()
+    state_actions = average_state_actions(worker_state_actions, grid_width, grid_height, agent_count)
+    episodes = average_episodes(worker_episodes)
 
-    return state_actions, episode_data
+    return state_actions, episodes

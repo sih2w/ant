@@ -1,5 +1,5 @@
 import math
-from workspace.shared_types import *
+from workspace.types import *
 from workspace.functions.pygame_functions import change_image_color
 import numpy as np
 import pygame
@@ -142,6 +142,13 @@ class ScavengingAntEnv:
             agent["last_action"] = 0
 
         return self.__get_states(), {}
+
+    def get_initial_food_locations(self) -> FoodLocations:
+        food_locations = []
+        for food in self.__food:
+            food_locations.append(food["spawn_location"])
+        food_locations = tuple(food_locations)
+        return food_locations
 
     def __outside_grid(self, location: Location) -> bool:
         return location[0] < 0 or location[0] >= self.__grid_width or location[1] < 0 or location[1] >= self.__grid_height
