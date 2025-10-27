@@ -1,19 +1,46 @@
-from typing import List, Tuple, TypeAlias, TypedDict, DefaultDict, TypeVar, Dict
+from typing import List, Tuple, TypeAlias, TypedDict, Dict, Callable
 import pygame
 
-T = TypeVar("T")
+
 Used: TypeAlias = bool or None
+
+
 Location: TypeAlias = Tuple[int, int]
+
+
 FoodLocations: TypeAlias = Tuple[Location, ...]
+
+
 Actions: TypeAlias = List[float]
+
+
 Episode: TypeAlias = List
+
+
 Policy: TypeAlias = List
+
+
 GriddedPolicy: TypeAlias = List[List[Policy]]
 
 
+ReturningPolicies: TypeAlias = List[GriddedPolicy]
+
+
+SearchingPolicies: TypeAlias = List[Dict[FoodLocations, GriddedPolicy]]
+
+
+class EnvironmentState(TypedDict):
+    agent_locations: List[Location]
+    carried_food: List[List[int]]
+    nest_locations: List[Location]
+    obstacle_locations: List[Location]
+    food_locations: List[Location]
+    deposited_food: List[bool]
+
+
 class StateActions(TypedDict):
-    returning: List[List[List[Policy]]]
-    searching: List[Dict[FoodLocations, List[List[Policy]]]]
+    returning: ReturningPolicies
+    searching: SearchingPolicies
 
 
 class State(TypedDict):
@@ -46,3 +73,8 @@ class Agent(TypedDict):
 class Obstacle(TypedDict):
     location: Location
     spawn_location: Location
+
+
+FoodPickupCallback: TypeAlias = Callable[[int, EnvironmentState], bool]
+
+ActionVerificationCallback: TypeAlias = Callable[[int, int, EnvironmentState], Tuple[bool, int]]

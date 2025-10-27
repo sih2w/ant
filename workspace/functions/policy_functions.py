@@ -115,7 +115,7 @@ def update_policy_use(
                 episode[EpisodeAttribute.USED_RETURN_POLICIES.value] += 1
             else:
                 episode[EpisodeAttribute.USED_SEARCH_POLICIES.value] += 1
-        policy[PolicyAttribute.GIVEN.value] = True
+        policy[PolicyAttribute.USED.value] = True
 
     return None
 

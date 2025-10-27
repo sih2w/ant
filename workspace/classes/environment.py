@@ -40,7 +40,7 @@ class ScavengingAntEnv:
             location = self.__get_new_random_location(excluded_locations, random)
             excluded_locations.append(location)
             color = pygame.Color(0)
-            color.hsla = (360 / (len(self.__agents) + 1), 100, 50, 100)
+            color.hsla = (360.00 / (len(self.__agents) + 1.00), 100.00, 50.00, 100.00)
 
             self.__agents.append({
                 "location": location,
@@ -77,8 +77,24 @@ class ScavengingAntEnv:
                 "spawn_location": location,
             })
 
+    def get_environment_state(self) -> EnvironmentState:
+        return {
+            "agent_locations": [agent["location"] for agent in self.__agents],
+            "carried_food": [self.__get_carried_food_indexes(agent) for agent in self.__agents],
+            "nest_locations": [nest["location"] for nest in self.__nests],
+            "obstacle_locations": [obstacle["location"] for obstacle in self.__obstacles],
+            "food_locations": [food["location"] for food in self.__food],
+            "deposited_food": [food["deposited"] for food in self.__food],
+        }
+
     def get_seed(self):
         return self.__seed
+
+    def __get_carried_food_indexes(self, agent: Agent) -> List[int]:
+        food_indexes = []
+        for index, food in enumerate(agent["carried_food"]):
+            food_indexes.append(self.__food.index(food))
+        return food_indexes
 
     def __get_random_location(self, random: np.random.Generator) -> Location:
         return (
@@ -143,13 +159,6 @@ class ScavengingAntEnv:
 
         return self.__get_states(), {}
 
-    def get_initial_food_locations(self) -> FoodLocations:
-        food_locations = []
-        for food in self.__food:
-            food_locations.append(food["spawn_location"])
-        food_locations = tuple(food_locations)
-        return food_locations
-
     def __outside_grid(self, location: Location) -> bool:
         return location[0] < 0 or location[0] >= self.__grid_width or location[1] < 0 or location[1] >= self.__grid_height
 
@@ -159,12 +168,18 @@ class ScavengingAntEnv:
                 return True
         return False
 
-    def __pickup_food(self, agent: Agent, location: Location) -> bool:
+    def __pickup_food(
+            self,
+            agent: Agent,
+            location: Location,
+            food_pickup_callback: FoodPickupCallback
+    ) -> bool:
         if len(agent["carried_food"]) < agent["carry_capacity"]:
             for food in self.__food:
                 can_pick_up = not food["deposited"]
                 can_pick_up = can_pick_up and not food["carried"]
                 can_pick_up = can_pick_up and food["location"] == location
+                can_pick_up = can_pick_up and food_pickup_callback(self.__agents.index(agent), self.get_environment_state())
 
                 if can_pick_up:
                     agent["carried_food"].append(food)
@@ -191,7 +206,12 @@ class ScavengingAntEnv:
                 deposited += 1
         return deposited
 
-    def __update_agent(self, agent: Agent, action: int):
+    def __update_agent(
+            self,
+            agent: Agent,
+            action: int,
+            food_pickup_callback: FoodPickupCallback
+    ):
         direction = AGENT_ACTIONS[action]
         old_location = agent["location"]
         new_location = (old_location[0] + direction[0], old_location[1] + direction[1])
@@ -204,7 +224,7 @@ class ScavengingAntEnv:
             return -1000
 
         reward = 0
-        picked_up_food = self.__pickup_food(agent, new_location)
+        picked_up_food = self.__pickup_food(agent, new_location, food_pickup_callback)
         if picked_up_food:
             reward += 4
 
@@ -218,12 +238,16 @@ class ScavengingAntEnv:
 
         return reward if reward > 0 else -1
 
-    def step(self, selected_actions: List[int]):
+    def step(
+            self,
+            selected_actions: List[int],
+            food_pickup_callbacks: List[FoodPickupCallback],
+    ):
         rewards: List[int] = []
 
         for index, agent in enumerate(self.__agents):
             action = selected_actions[index]
-            rewards.append(self.__update_agent(agent, action))
+            rewards.append(self.__update_agent(agent, action, food_pickup_callbacks[index]))
             agent["last_action"] = action
 
         terminated = self.__get_food_deposited() == len(self.__food)

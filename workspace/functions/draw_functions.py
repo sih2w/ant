@@ -86,6 +86,13 @@ def init_pygame() -> None:
     return None
 
 
+def get_food_pickup_callbacks(agent_count: int) -> List[FoodPickupCallback]:
+    def food_pickup_callback(agent_index: int, environment_state: EnvironmentState) -> bool:
+        return True
+
+    return [food_pickup_callback] * agent_count
+
+
 def test(
         state_actions: StateActions,
         environment: ScavengingAntEnv
@@ -108,6 +115,9 @@ def test(
 
     grid_width = environment.get_grid_width()
     grid_height = environment.get_grid_height()
+    agent_count = environment.get_agent_count()
+
+    food_pickup_callbacks = get_food_pickup_callbacks(agent_count)
 
     while running:
         states, _ = environment.reset()
@@ -129,7 +139,7 @@ def test(
             if draw_next_step:
                 stepping = True
                 agent_actions = get_decided_actions(state_actions, states, grid_width, grid_height)
-                states, rewards, terminations, truncations, info = environment.step(agent_actions)
+                states, rewards, terminations, truncations, info = environment.step(agent_actions, food_pickup_callbacks)
 
             if draw_next_step or switching_agent:
                 draw(

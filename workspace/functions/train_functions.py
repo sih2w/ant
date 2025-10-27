@@ -6,40 +6,86 @@ from workspace.classes.environment import ScavengingAntEnv
 from workspace.types import *
 from workspace.functions.policy_functions import get_training_actions, update_policy_use, exchange
 from workspace.functions.episode_functions import has_episode_ended,episode_factory
-from workspace.functions.policy_functions import update_policy, state_actions_factory, gridded_policy_factory, state_actions_factory
-from workspace.enums import EpisodeAttribute
+from workspace.functions.policy_functions import update_policy, gridded_policy_factory, state_actions_factory
+from workspace.enums import EpisodeAttribute, PolicyAttribute
 from multiprocessing import Process
 
 
-def average_gridded_policies(
-        gridded_policies: List[GriddedPolicy],
-        grid_width: int,
-        grid_height: int,
-) -> GriddedPolicy:
-    average = gridded_policy_factory(grid_width, grid_height)
-    for row in range(grid_height):
-        for column in range(grid_width):
-            average[row][column] = [0.00] * 4
-            for policy in gridded_policies[row][column]:
-                for index, value in enumerate(policy):
-                    average[row][column][index] += value
-            for index, value in enumerate(average[row][column]):
-                average[row][column][index] /= len(gridded_policies[row][column])
+# def average_gridded_policies(
+#         gridded_policies: List[GriddedPolicy],
+#         grid_width: int,
+#         grid_height: int
+# ) -> GriddedPolicy:
+#     averaged_gridded_policy = gridded_policy_factory(grid_width, grid_height)
+#
+#     for row in range(grid_height):
+#         for column in range(grid_width):
+#             averaged_policy = averaged_gridded_policy[row][column]
+#             averaged_actions = averaged_policy[PolicyAttribute.ACTIONS.value]
+#
+#             for gridded_policy in gridded_policies:
+#                 policy = gridded_policy[row][column]
+#                 actions = policy[PolicyAttribute.ACTIONS.value]
+#                 for index, value in enumerate(actions):
+#                     averaged_actions[index] += value
+#
+#             for index, value in enumerate(averaged_actions):
+#                 averaged_actions[index] /= len(gridded_policies)
+#
+#     return averaged_gridded_policy
+#
+#
+# def average_returning_policies(
+#         returning_policies: List[ReturningPolicies],
+#         grid_width: int,
+#         grid_height: int
+# ) -> ReturningPolicies:
+#     pass
+#
+#
+# def average_searching_policies(
+#         searching_policies: List[SearchingPolicies],
+#         grid_width: int,
+#         grid_height: int
+# ) -> SearchingPolicies:
+#     pass
+#
+#
+# def average_state_actions(
+#         worker_state_actions: List[StateActions],
+#         grid_width: int,
+#         grid_height: int
+# ) -> StateActions:
+#     returning_policies = []
+#     for state_actions in worker_state_actions:
+#         returning_policies.append(state_actions["returning"])
+#
+#     searching_policies = []
+#     for state_actions in worker_state_actions:
+#         searching_policies.append(state_actions["searching"])
+#
+#     return {
+#         "returning": average_returning_policies(returning_policies, grid_width, grid_height),
+#         "searching": average_searching_policies(searching_policies, grid_width, grid_height),
+#     }
+#
+#
+# def average_episodes(episodes: List[List[Episode]]) -> List[Episode]:
+#     return episodes[0]
 
-    return average
+
+def get_food_pickup_callbacks(agent_count: int) -> List[FoodPickupCallback]:
+    def food_pickup_callback(agent_index: int, environment_state: EnvironmentState) -> bool:
+        return True
+
+    return [food_pickup_callback] * agent_count
 
 
-def average_state_actions(
-        state_actions_list: List[StateActions],
-        grid_width: int,
-        grid_height: int,
-        agent_count: int,
-) -> StateActions:
-    return state_actions_list[0]
+def get_action_verification_callbacks(agent_count: int) -> List[ActionVerificationCallback]:
+    def action_verification_callback(agent_index: int, action_index: int, environment_state: EnvironmentState) -> Tuple[bool, int]:
+        return True, -1
 
-
-def average_episodes(episodes: List[List[Episode]]) -> List[Episode]:
-    return episodes[0]
+    return [action_verification_callback] * agent_count
 
 
 def train_episode(
@@ -54,10 +100,15 @@ def train_episode(
 ) -> Episode:
     states, _ = environment.reset()
     terminations, truncations = [], []
+
+    agent_count = environment.get_agent_count()
     grid_width = environment.get_grid_width()
     grid_height = environment.get_grid_height()
 
-    episode: Episode = episode_factory(environment.get_agent_count())
+    food_pickup_callbacks = get_food_pickup_callbacks(agent_count)
+    action_verification_callbacks = get_action_verification_callbacks(agent_count)
+
+    episode: Episode = episode_factory(agent_count)
 
     while not has_episode_ended(terminations, truncations):
         selected_actions: List[int] = get_training_actions(
@@ -69,6 +120,12 @@ def train_episode(
             grid_width=grid_width,
         )
 
+        for agent_index, action_index in enumerate(selected_actions):
+            callback = action_verification_callbacks[agent_index]
+            success, new_action_index = callback(agent_index, action_index, environment.get_environment_state())
+            if not success:
+                selected_actions[agent_index] = new_action_index
+
         update_policy_use(
             episode=episode,
             states=states,
@@ -77,7 +134,8 @@ def train_episode(
             grid_height=grid_height,
         )
 
-        new_states, rewards, terminations, truncations, infos = environment.step(selected_actions)
+        new_states, rewards, terminations, truncations, infos = environment.step(selected_actions, food_pickup_callbacks)
+
         for index, reward in enumerate(rewards):
             episode[EpisodeAttribute.REWARDS.value][index] += reward
 
@@ -173,15 +231,11 @@ def train(
         agent_vision_radius: float,
         worker_count: int,
 ) -> Tuple[StateActions, List[Episode]]:
-    agent_count = environment.get_agent_count()
-    grid_width = environment.get_grid_width()
-    grid_height = environment.get_grid_height()
+    manager = mp.Manager()
+    worker_state_actions = manager.list(range(worker_count))
+    worker_episodes = manager.list(range(worker_count))
 
     workers: List[Process] = []
-
-    manager = mp.Manager()
-    worker_state_actions = manager.list(range(agent_count))
-    worker_episodes = manager.list(range(agent_count))
 
     for worker_index in range(worker_count):
         workers.append(
@@ -210,10 +264,4 @@ def train(
         worker.join()
         worker.close()
 
-    if worker_count == 1:
-        return worker_state_actions[0], worker_episodes[0]
-
-    state_actions = average_state_actions(worker_state_actions, grid_width, grid_height, agent_count)
-    episodes = average_episodes(worker_episodes)
-
-    return state_actions, episodes
+    return worker_state_actions[0], worker_episodes[0]
