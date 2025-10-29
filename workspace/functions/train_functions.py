@@ -116,6 +116,7 @@ def train_episode(
     action_verification_callbacks = get_action_verification_callbacks()
 
     episode: Episode = episode_factory()
+    episode[EpisodeAttr.EPSILON.value] = epsilon
 
     while not has_episode_ended(terminations, truncations):
         selected_actions: List[int] = get_training_actions(
@@ -183,7 +184,7 @@ def train_parallel(
         desc=f"Training [Worker {worker_index}]"
     )
 
-    for current_episode in range(WORKER_EPISODE_COUNT):
+    for _ in range(WORKER_EPISODE_COUNT):
         episode = train_episode(
             environment=environment,
             epsilon=epsilon,
@@ -210,11 +211,11 @@ def train_from_existing(
     epsilon = 1.00 - (WORKER_EPISODE_COUNT * EPSILON_DECAY_RATE)
 
     progress_bar = tqdm(
-        total=WORKER_EPISODE_COUNT,
-        desc=f"Training [Averaged]"
+        total=MERGED_EPISODE_COUNT,
+        desc=f"Training [Merged]"
     )
 
-    for current_episode in range(WORKER_EPISODE_COUNT):
+    for current_episode in range(MERGED_EPISODE_COUNT):
         episode = train_episode(
             environment=environment,
             epsilon=epsilon,

@@ -22,6 +22,7 @@ def average_episode_data(episodes: List[Episode]) -> List[Episode]:
             episode_sum[EpisodeAttr.AVERAGED_RETURN_POLICIES.value] += episode[EpisodeAttr.AVERAGED_RETURN_POLICIES.value]
             episode_sum[EpisodeAttr.USED_SEARCH_POLICIES.value] += episode[EpisodeAttr.USED_SEARCH_POLICIES.value]
             episode_sum[EpisodeAttr.USED_RETURN_POLICIES.value] += episode[EpisodeAttr.USED_RETURN_POLICIES.value]
+            episode_sum[EpisodeAttr.EPSILON.value] += episode[EpisodeAttr.EPSILON.value]
             for index, reward in enumerate(episode[EpisodeAttr.REWARDS.value]):
                 episode_sum[EpisodeAttr.REWARDS.value][index] += reward
             count += 1
@@ -35,6 +36,7 @@ def average_episode_data(episodes: List[Episode]) -> List[Episode]:
             episode_average[EpisodeAttr.AVERAGED_RETURN_POLICIES.value] = round(episode_sum[EpisodeAttr.AVERAGED_RETURN_POLICIES.value] / count)
             episode_average[EpisodeAttr.USED_SEARCH_POLICIES.value] = round(episode_sum[EpisodeAttr.USED_SEARCH_POLICIES.value] / count)
             episode_average[EpisodeAttr.USED_RETURN_POLICIES.value] = round(episode_sum[EpisodeAttr.USED_RETURN_POLICIES.value] / count)
+            episode_average[EpisodeAttr.EPSILON.value] = episode_sum[EpisodeAttr.EPSILON.value] / count
             for index, reward in enumerate(episode_sum[EpisodeAttr.REWARDS.value]):
                 episode_average[EpisodeAttr.REWARDS.value][index] = round(reward / count)
             new_episodes.append(episode_average)
@@ -60,6 +62,7 @@ def plot_exchanges_per_episode(
 ) -> None:
     for key, value in exchanges.items():
         plt.plot(episode_numbers, value, label=key)
+    plt.axvline(x=WORKER_EPISODE_COUNT, color="tan", label="Merge")
     plt.title("Exchanges Per Episode")
     plt.xlabel("Episodes")
     plt.legend()
@@ -89,11 +92,26 @@ def plot_exchanges(
 
 def plot_steps_per_episode(
         episodes: List[Episode],
-        episode_numbers: List[int],
+        episode_numbers: List[int]
 ) -> None:
     steps = [episode[EpisodeAttr.STEPS.value] for episode in episodes]
-    plt.plot(episode_numbers, steps, color="green")
+    plt.plot(episode_numbers, steps, color="green", label="Steps")
+    plt.axvline(x=WORKER_EPISODE_COUNT, color="tan", label="Merge")
     plt.title("Steps")
+    plt.xlabel(f"Episodes")
+    plt.show()
+
+    return None
+
+
+def plot_epsilons(
+        episodes: List[Episode],
+        episode_numbers: List[int]
+) -> None:
+    epsilons = [episode[EpisodeAttr.EPSILON.value] for episode in episodes]
+    plt.plot(episode_numbers, epsilons, color="green", label="Epsilons")
+    plt.axvline(x=WORKER_EPISODE_COUNT, color="tan", label="Merge")
+    plt.title("Epsilons")
     plt.xlabel(f"Episodes")
     plt.show()
 
@@ -111,11 +129,13 @@ def plot_rewards_per_episode(
             rewards.append(reward[index])
         plt.plot(episode_numbers, rewards)
 
+    plt.axvline(x=WORKER_EPISODE_COUNT, color="tan", label="Merge")
     plt.title("Rewards")
     plt.xlabel(f"Episodes")
     plt.show()
 
     return None
+
 
 def plot_episodes(episodes: List[Episode]) -> None:
     episodes = average_episode_data(episodes)
@@ -124,5 +144,6 @@ def plot_episodes(episodes: List[Episode]) -> None:
     plot_exchanges(episodes, episode_numbers)
     plot_steps_per_episode(episodes, episode_numbers)
     plot_rewards_per_episode(episodes, episode_numbers)
+    plot_epsilons(episodes, episode_numbers)
 
     return None

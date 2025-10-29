@@ -6,7 +6,8 @@ from workspace.shared.run_settings import *
 
 SAVE_DIRECTORY = "runs"
 FILE_NAME = (
-    f"E={WORKER_EPISODE_COUNT} "
+    f"WE={WORKER_EPISODE_COUNT} "
+    f"ME={MERGED_EPISODE_COUNT} "
     f"S={SEED} "
     f"GW={GRID_WIDTH} "
     f"GH={GRID_HEIGHT} "

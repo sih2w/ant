@@ -3,7 +3,7 @@ from workspace.shared.run_settings import *
 
 
 def episode_factory() -> Episode:
-    return [0, [0] * AGENT_COUNT, 0, 0, 0, 0, 0, 0]
+    return [0, [0] * AGENT_COUNT, 0, 0, 0, 0, 0, 0, 0.00]
 
 
 def has_episode_ended(
