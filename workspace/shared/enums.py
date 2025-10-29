@@ -1,14 +1,14 @@
 from enum import Enum
 
 
-class PolicyAttribute(Enum):
+class PolicyAttr(Enum):
     ACTIONS = 0
     AVERAGED = 1
     GIVEN = 2
     USED = 3
 
 
-class EpisodeAttribute(Enum):
+class EpisodeAttr(Enum):
     STEPS = 0
     REWARDS = 1
     GIVEN_SEARCH_POLICIES = 2

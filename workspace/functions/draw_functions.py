@@ -1,13 +1,14 @@
 import copy
-from workspace.classes.environment import ScavengingAntEnv, ACTION_ROTATIONS
+from workspace.classes.environment import Environment, ACTION_ROTATIONS
 from workspace.functions.pygame_functions import change_image_color
-from workspace.types import *
+from workspace.shared.types import *
 from workspace.functions.policy_functions import get_decided_actions
 from workspace.functions.episode_functions import has_episode_ended
+from workspace.shared.run_settings import *
 
 
 def draw_arrow(
-        environment: ScavengingAntEnv,
+        environment: Environment,
         action_index: int,
         agent_index: int,
         agent_location: Location,
@@ -24,21 +25,19 @@ def draw_arrow(
 
 
 def draw_arrows(
-        environment: ScavengingAntEnv,
+        environment: Environment,
         states: List[State],
         agent_index: int,
         state_actions: StateActions,
         canvas: pygame.Surface,
 ) -> None:
     states = copy.deepcopy(states)
-    grid_width = environment.get_grid_width()
-    grid_height = environment.get_grid_height()
 
-    for row in range(environment.get_grid_height()):
-        for column in range(environment.get_grid_width()):
+    for row in range(GRID_HEIGHT):
+        for column in range(GRID_WIDTH):
             agent_location = (column, row)
             states[agent_index]["agent_location"] = agent_location
-            agent_actions = get_decided_actions(state_actions, states, grid_width, grid_height)
+            agent_actions = get_decided_actions(state_actions, states)
             draw_arrow(
                 environment=environment,
                 action_index=agent_actions[agent_index],
@@ -51,18 +50,17 @@ def draw_arrows(
 
 
 def draw(
-        environment: ScavengingAntEnv,
+        environment: Environment,
         window_size: Tuple[int, int],
         window: pygame.Surface,
         states: List[State],
         agent_index: int,
-        state_actions: StateActions,
-        show_arrows: bool = True,
+        state_actions: StateActions
 ) -> None:
     canvas = pygame.Surface(window_size)
     environment.draw(canvas)
 
-    if show_arrows:
+    if DRAW_ARROWS:
         draw_arrows(
             environment=environment,
             states=states,
@@ -86,16 +84,9 @@ def init_pygame() -> None:
     return None
 
 
-def get_food_pickup_callbacks(agent_count: int) -> List[FoodPickupCallback]:
-    def food_pickup_callback(agent_index: int, environment_state: EnvironmentState) -> bool:
-        return True
-
-    return [food_pickup_callback] * agent_count
-
-
 def test(
         state_actions: StateActions,
-        environment: ScavengingAntEnv
+        environment: Environment
 ) -> None:
     init_pygame()
 
@@ -112,12 +103,6 @@ def test(
     running = True
     stepping_enabled = False
     stepping = False
-
-    grid_width = environment.get_grid_width()
-    grid_height = environment.get_grid_height()
-    agent_count = environment.get_agent_count()
-
-    food_pickup_callbacks = get_food_pickup_callbacks(agent_count)
 
     while running:
         states, _ = environment.reset()
@@ -138,8 +123,8 @@ def test(
 
             if draw_next_step:
                 stepping = True
-                agent_actions = get_decided_actions(state_actions, states, grid_width, grid_height)
-                states, rewards, terminations, truncations, info = environment.step(agent_actions, food_pickup_callbacks)
+                agent_actions = get_decided_actions(state_actions, states)
+                states, rewards, terminations, truncations, info = environment.step(agent_actions, [])
 
             if draw_next_step or switching_agent:
                 draw(
@@ -169,7 +154,7 @@ def test(
                     if not switching_agent:
                         switching_agent = True
                         agent_index += 1
-                        if agent_index >= environment.get_agent_count():
+                        if agent_index >= AGENT_COUNT:
                             agent_index = 0
                 else:
                     switching_agent = False

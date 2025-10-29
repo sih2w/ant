@@ -1,42 +1,27 @@
-import math
-from workspace.types import *
+from typing import Optional
+
+from workspace.shared.types import *
 from workspace.functions.pygame_functions import change_image_color
+from workspace.shared.run_settings import *
 import numpy as np
 import pygame
+
 
 AGENT_ACTIONS = ((0, 1), (0, -1), (-1, 0), (1, 0))
 ACTION_ROTATIONS = (180, 0, 90, -90)
 
-class ScavengingAntEnv:
-    def __init__(
-            self,
-            grid_width: int = 20,
-            grid_height: int = 10,
-            square_pixel_width: int = 80,
-            nest_count: int = 1,
-            food_count: int = 1,
-            agent_count: int = 1,
-            obstacle_count: int = 1,
-            seed: int = np.random.randint(1, 1000),
-            carry_capacity: int = 1
-    ):
-        self.__grid_width = grid_width
-        self.__grid_height = grid_height
-        self.__square_pixel_width = square_pixel_width
-        self.__obstacle_count = math.floor(min(grid_width * grid_height * 0.10, obstacle_count))
-        self.__food_count = food_count
-        self.__nest_count = nest_count
 
+class Environment:
+    def __init__(self):
         self.__food: List[Food] = []
         self.__obstacles: List[Obstacle] = []
         self.__nests: List[Nest] = []
         self.__agents: List[Agent] = []
-        self.__seed = seed
 
-        random = np.random.default_rng(self.__seed)
+        random = np.random.default_rng(SEED)
         excluded_locations = []
 
-        for index in range(agent_count):
+        for index in range(AGENT_COUNT):
             location = self.__get_new_random_location(excluded_locations, random)
             excluded_locations.append(location)
             color = pygame.Color(0)
@@ -47,11 +32,11 @@ class ScavengingAntEnv:
                 "carried_food": [],
                 "last_action": 0,
                 "spawn_location": location,
-                "carry_capacity": carry_capacity,
+                "carry_capacity": CARRY_CAPACITY,
                 "color": color
             })
 
-        for _ in range(self.__nest_count):
+        for _ in range(NEST_COUNT):
             location = self.__get_new_random_location(excluded_locations, random)
             excluded_locations.append(location)
             self.__nests.append({
@@ -59,7 +44,7 @@ class ScavengingAntEnv:
                 "spawn_location": location,
             })
 
-        for _ in range(self.__food_count):
+        for _ in range(FOOD_COUNT):
             location = self.__get_new_random_location(excluded_locations, random)
             excluded_locations.append(location)
             self.__food.append({
@@ -69,7 +54,7 @@ class ScavengingAntEnv:
                 "spawn_location": location,
             })
 
-        for index in range(self.__obstacle_count):
+        for index in range(OBSTACLE_COUNT):
             location = self.__get_new_random_location(excluded_locations, random)
             excluded_locations.append(location)
             self.__obstacles.append({
@@ -87,19 +72,17 @@ class ScavengingAntEnv:
             "deposited_food": [food["deposited"] for food in self.__food],
         }
 
-    def get_seed(self):
-        return self.__seed
-
     def __get_carried_food_indexes(self, agent: Agent) -> List[int]:
         food_indexes = []
         for index, food in enumerate(agent["carried_food"]):
             food_indexes.append(self.__food.index(food))
         return food_indexes
 
-    def __get_random_location(self, random: np.random.Generator) -> Location:
+    @staticmethod
+    def __get_random_location(random: np.random.Generator) -> Location:
         return (
-            int(random.integers(0, self.__grid_width)),
-            int(random.integers(0, self.__grid_height))
+            int(random.integers(0, GRID_WIDTH)),
+            int(random.integers(0, GRID_HEIGHT))
         )
 
     def __get_new_random_location(self, excluded_locations: List[Location], random: np.random.Generator) -> Location:
@@ -159,8 +142,9 @@ class ScavengingAntEnv:
 
         return self.__get_states(), {}
 
-    def __outside_grid(self, location: Location) -> bool:
-        return location[0] < 0 or location[0] >= self.__grid_width or location[1] < 0 or location[1] >= self.__grid_height
+    @staticmethod
+    def __outside_grid(location: Location) -> bool:
+        return location[0] < 0 or location[0] >= GRID_WIDTH or location[1] < 0 or location[1] >= GRID_HEIGHT
 
     def __inside_obstacle(self, location: Location) -> bool:
         for obstacle in self.__obstacles:
@@ -172,14 +156,20 @@ class ScavengingAntEnv:
             self,
             agent: Agent,
             location: Location,
-            food_pickup_callback: FoodPickupCallback
+            food_pickup_callback: Optional[FoodPickupCallback]
     ) -> bool:
         if len(agent["carried_food"]) < agent["carry_capacity"]:
+            if food_pickup_callback is None:
+                food_pickup_callback = lambda agent_index, environment_state: True
+
+            agent_index = self.__agents.index(agent)
+            environment_state = self.get_environment_state()
+
             for food in self.__food:
                 can_pick_up = not food["deposited"]
                 can_pick_up = can_pick_up and not food["carried"]
                 can_pick_up = can_pick_up and food["location"] == location
-                can_pick_up = can_pick_up and food_pickup_callback(self.__agents.index(agent), self.get_environment_state())
+                can_pick_up = can_pick_up and food_pickup_callback(agent_index, environment_state)
 
                 if can_pick_up:
                     agent["carried_food"].append(food)
@@ -210,7 +200,7 @@ class ScavengingAntEnv:
             self,
             agent: Agent,
             action: int,
-            food_pickup_callback: FoodPickupCallback
+            food_pickup_callback: Optional[FoodPickupCallback]
     ):
         direction = AGENT_ACTIONS[action]
         old_location = agent["location"]
@@ -241,13 +231,14 @@ class ScavengingAntEnv:
     def step(
             self,
             selected_actions: List[int],
-            food_pickup_callbacks: List[FoodPickupCallback],
+            food_pickup_callbacks: List[Optional[FoodPickupCallback]],
     ):
         rewards: List[int] = []
 
         for index, agent in enumerate(self.__agents):
             action = selected_actions[index]
-            rewards.append(self.__update_agent(agent, action, food_pickup_callbacks[index]))
+            callback = food_pickup_callbacks[index] if len(food_pickup_callbacks) > 0 else None
+            rewards.append(self.__update_agent(agent, action, callback))
             agent["last_action"] = action
 
         terminated = self.__get_food_deposited() == len(self.__food)
@@ -262,23 +253,15 @@ class ScavengingAntEnv:
             {}
         )
 
-    def get_position_on_grid(self, location: Location, width: float) -> Tuple[float, float]:
+    @staticmethod
+    def get_position_on_grid(location: Location, width: float) -> Tuple[float, float]:
         return (
-            location[0] * self.__square_pixel_width + self.__square_pixel_width / 2 - width / 2,
-            location[1] * self.__square_pixel_width + self.__square_pixel_width / 2 - width / 2
+            location[0] * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - width / 2,
+            location[1] * SQUARE_PIXEL_WIDTH + SQUARE_PIXEL_WIDTH / 2 - width / 2
         )
-
-    def get_grid_width(self):
-        return self.__grid_width
-
-    def get_grid_height(self):
-        return self.__grid_height
 
     def get_agent_color(self, index: int):
         return self.__agents[index]["color"]
-
-    def get_agent_count(self):
-        return len(self.__agents)
 
     def __draw_nests(self, canvas):
         for nest in self.__nests:
@@ -308,24 +291,27 @@ class ScavengingAntEnv:
             position = self.get_position_on_grid(obstacle["location"], image.get_width())
             canvas.blit(image, position)
 
-    def __draw_grass(self, canvas):
-        for row in range(self.__grid_height):
-            for column in range(self.__grid_width):
+    @staticmethod
+    def __draw_grass(canvas):
+        for row in range(GRID_HEIGHT):
+            for column in range(GRID_WIDTH):
                 pygame.draw.rect(
                     surface=canvas,
-                    color=(46, 48, 51) if (row % 2 == 0 and column % 2 == 1) or (row % 2 == 1 and column % 2 == 0) else (29, 31, 33),
+                    color=(46, 48, 51) if (row % 2 == 0 and column % 2 == 1) or (
+                                row % 2 == 1 and column % 2 == 0) else (29, 31, 33),
                     rect=(
-                        column * self.__square_pixel_width,
-                        row * self.__square_pixel_width,
-                        self.__square_pixel_width,
-                        self.__square_pixel_width
+                        column * SQUARE_PIXEL_WIDTH,
+                        row * SQUARE_PIXEL_WIDTH,
+                        SQUARE_PIXEL_WIDTH,
+                        SQUARE_PIXEL_WIDTH
                     ),
                 )
 
-    def get_window_size(self):
+    @staticmethod
+    def get_window_size():
         return (
-            self.__grid_width * self.__square_pixel_width,
-            self.__grid_height * self.__square_pixel_width
+            GRID_WIDTH * SQUARE_PIXEL_WIDTH,
+            GRID_HEIGHT * SQUARE_PIXEL_WIDTH
         )
 
     def draw(self, canvas):
