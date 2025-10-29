@@ -37,12 +37,12 @@ def average_returning_policies(returning_policies: List[ReturningPolicies]) -> R
 
     progress_bar = tqdm(
         total=AGENT_COUNT,
-        desc="Average Returning Policies"
+        desc="Average Return Policies"
     )
 
     for agent_index in range(AGENT_COUNT):
         gridded_policies: List[GriddedPolicy] = []
-        for worker_index, worker_gridded_policies in enumerate(returning_policies):
+        for worker_gridded_policies in returning_policies:
             gridded_policies.append(worker_gridded_policies[agent_index])
         average_returning_policy[agent_index] = average_gridded_policies(gridded_policies)
         progress_bar.update(1)
@@ -52,14 +52,26 @@ def average_returning_policies(returning_policies: List[ReturningPolicies]) -> R
 
 
 def average_searching_policies(searching_policies: List[SearchingPolicies]) -> SearchingPolicies:
+    average_searching_policy: SearchingPolicies = searching_policies[0]
+
     progress_bar = tqdm(
         total=AGENT_COUNT,
-        desc="Average Searching Policies"
+        desc="Average Search Policies"
     )
 
+    for agent_index in range(AGENT_COUNT):
+        gridded_policies: Dict[FoodLocations, List[GriddedPolicy]] = {}
+        for worker_searching_policies in searching_policies:
+            food_locations_to_gridded_policies = worker_searching_policies[agent_index]
+            for food_locations, gridded_policy in food_locations_to_gridded_policies.items():
+                gridded_policies.setdefault(food_locations, [])
+                gridded_policies[food_locations].append(gridded_policy)
+        for food_locations, gridded_policy in gridded_policies.items():
+            average_searching_policy[agent_index][food_locations] = average_gridded_policies(gridded_policy)
+        progress_bar.update(1)
     progress_bar.close()
 
-    return searching_policies[0]
+    return average_searching_policy
 
 
 def average_state_actions(worker_state_actions: List[StateActions]) -> StateActions:
@@ -75,10 +87,6 @@ def average_state_actions(worker_state_actions: List[StateActions]) -> StateActi
         "returning": average_returning_policies(returning_policies),
         "searching": average_searching_policies(searching_policies),
     }
-
-
-# def average_episodes(episodes: List[List[Episode]]) -> List[Episode]:
-#     return episodes[0]
 
 
 def get_food_pickup_callbacks() -> List[FoodPickupCallback]:
