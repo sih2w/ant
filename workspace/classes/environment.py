@@ -9,6 +9,18 @@ AGENT_ACTIONS = ((0, 1), (0, -1), (-1, 0), (1, 0))
 ACTION_ROTATIONS = (180, 0, 90, -90)
 
 
+def default_food_pickup_callback(environment_state: EnvironmentState, food_index: int):
+    return True
+
+
+def default_action_override_callback(environment_state: EnvironmentState, action_index: int):
+    return False, -1
+
+
+def default_exchange_callback(environment_state: EnvironmentState):
+    return True
+
+
 class Environment:
     def __init__(self):
         self.__food: List[Food] = []
@@ -32,9 +44,9 @@ class Environment:
                 "spawn_location": location,
                 "carry_capacity": CARRY_CAPACITY,
                 "color": color,
-                "food_pickup_callback": lambda environment_state: True,
-                "action_override_callback": lambda environment_state, action_index: (False, -1),
-                "exchange_callback": lambda environment_state: True
+                "food_pickup_callback": default_food_pickup_callback,
+                "action_override_callback": default_action_override_callback,
+                "exchange_callback": default_exchange_callback
             })
 
         for _ in range(NEST_COUNT):
@@ -169,11 +181,11 @@ class Environment:
         if len(agent["carried_food"]) < agent["carry_capacity"]:
             environment_state = self.get_environment_state()
 
-            for food in self.__food:
+            for index, food in enumerate(self.__food):
                 can_pick_up = not food["deposited"]
                 can_pick_up = can_pick_up and not food["carried"]
                 can_pick_up = can_pick_up and food["location"] == location
-                can_pick_up = can_pick_up and agent["food_pickup_callback"](environment_state)
+                can_pick_up = can_pick_up and agent["food_pickup_callback"](environment_state, index)
 
                 if can_pick_up:
                     agent["carried_food"].append(food)

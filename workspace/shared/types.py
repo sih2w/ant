@@ -61,7 +61,7 @@ class Nest(TypedDict):
     spawn_location: Location
 
 
-FoodPickupCallback: TypeAlias = Callable[[EnvironmentState], bool]
+FoodPickupCallback: TypeAlias = Callable[[EnvironmentState, int], bool]
 
 
 ActionOverrideCallback: TypeAlias = Callable[[EnvironmentState, int], Tuple[bool, int]]

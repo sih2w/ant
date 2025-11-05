@@ -10,14 +10,22 @@ from workspace.functions.draw_functions import test
 from workspace.functions.train_functions import train
 from workspace.functions.data_functions import load_data, save_data
 from workspace.shared.run_settings import *
+from workspace.shared.types import *
 
+
+def has_prior_food_been_deposited(environment_state: EnvironmentState, food_index: int) -> bool:
+    for other_food_index, deposited in enumerate(environment_state["deposited_food"]):
+        if other_food_index < food_index and not deposited:
+            return False
+    return True
 
 
 if __name__ == "__main__":
     environment = Environment()
-    environment.register_food_pickup_callbacks([
-        lambda environment_state: True
-    ])
+
+    environment.register_food_pickup_callbacks(
+        [has_prior_food_been_deposited] * AGENT_COUNT
+    )
 
     environment.register_action_override_callbacks([])
 
