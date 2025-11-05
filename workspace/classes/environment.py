@@ -1,5 +1,3 @@
-from typing import Optional
-
 from workspace.shared.types import *
 from workspace.functions.pygame_functions import change_image_color
 from workspace.shared.run_settings import *
@@ -33,7 +31,10 @@ class Environment:
                 "last_action": 0,
                 "spawn_location": location,
                 "carry_capacity": CARRY_CAPACITY,
-                "color": color
+                "color": color,
+                "food_pickup_callback": lambda environment_state: True,
+                "action_override_callback": lambda environment_state, action_index: (False, -1),
+                "exchange_callback": lambda environment_state: True
             })
 
         for _ in range(NEST_COUNT):
@@ -61,6 +62,18 @@ class Environment:
                 "location": location,
                 "spawn_location": location,
             })
+
+    def register_food_pickup_callbacks(self, callbacks: List[FoodPickupCallback]):
+        for index, callback in enumerate(callbacks):
+            self.__agents[index]["food_pickup_callback"] = callback
+
+    def register_action_override_callbacks(self, callbacks: List[ActionOverrideCallback]):
+        for index, callback in enumerate(callbacks):
+            self.__agents[index]["action_override_callback"] = callback
+
+    def register_exchange_callbacks(self, callbacks: List[ExchangeCallback]):
+        for index, callback in enumerate(callbacks):
+            self.__agents[index]["exchange_callback"] = callback
 
     def get_environment_state(self) -> EnvironmentState:
         return {
@@ -152,24 +165,15 @@ class Environment:
                 return True
         return False
 
-    def __pickup_food(
-            self,
-            agent: Agent,
-            location: Location,
-            food_pickup_callback: Optional[FoodPickupCallback]
-    ) -> bool:
+    def __pickup_food(self, agent: Agent, location: Location) -> bool:
         if len(agent["carried_food"]) < agent["carry_capacity"]:
-            if food_pickup_callback is None:
-                food_pickup_callback = lambda agent_index, environment_state: True
-
-            agent_index = self.__agents.index(agent)
             environment_state = self.get_environment_state()
 
             for food in self.__food:
                 can_pick_up = not food["deposited"]
                 can_pick_up = can_pick_up and not food["carried"]
                 can_pick_up = can_pick_up and food["location"] == location
-                can_pick_up = can_pick_up and food_pickup_callback(agent_index, environment_state)
+                can_pick_up = can_pick_up and agent["food_pickup_callback"](environment_state)
 
                 if can_pick_up:
                     agent["carried_food"].append(food)
@@ -196,13 +200,8 @@ class Environment:
                 deposited += 1
         return deposited
 
-    def __update_agent(
-            self,
-            agent: Agent,
-            action: int,
-            food_pickup_callback: Optional[FoodPickupCallback]
-    ):
-        direction = AGENT_ACTIONS[action]
+    def __update_agent(self, agent: Agent, action_index: int):
+        direction = AGENT_ACTIONS[action_index]
         old_location = agent["location"]
         new_location = (old_location[0] + direction[0], old_location[1] + direction[1])
 
@@ -214,7 +213,7 @@ class Environment:
             return -1000
 
         reward = 0
-        picked_up_food = self.__pickup_food(agent, new_location, food_pickup_callback)
+        picked_up_food = self.__pickup_food(agent, new_location)
         if picked_up_food:
             reward += 4
 
@@ -228,18 +227,17 @@ class Environment:
 
         return reward if reward > 0 else -1
 
-    def step(
-            self,
-            selected_actions: List[int],
-            food_pickup_callbacks: List[Optional[FoodPickupCallback]],
-    ):
+    def step(self, selected_actions: List[int]):
         rewards: List[int] = []
+        environment_state = self.get_environment_state()
 
         for index, agent in enumerate(self.__agents):
-            action = selected_actions[index]
-            callback = food_pickup_callbacks[index] if len(food_pickup_callbacks) > 0 else None
-            rewards.append(self.__update_agent(agent, action, callback))
-            agent["last_action"] = action
+            action_index = selected_actions[index]
+            override_selection, new_action_index = agent["action_override_callback"](environment_state, action_index)
+            if override_selection:
+                action_index = new_action_index
+            rewards.append(self.__update_agent(agent, action_index))
+            agent["last_action"] = action_index
 
         terminated = self.__get_food_deposited() == len(self.__food)
         terminations = [terminated for _ in range(len(self.__agents))]
@@ -279,11 +277,17 @@ class Environment:
             canvas.blit(image, position)
 
     def __draw_food(self, canvas):
+        font = pygame.font.SysFont("arialblack", 30)
+
         for food in self.__food:
             if not food["deposited"]:
                 image = pygame.image.load("images/icons8-whole-apple-48.png")
                 position = self.get_position_on_grid(food["location"], image.get_width())
                 canvas.blit(image, position)
+
+                text = font.render(f"{self.__food.index(food)}", True, (255, 255, 255))
+                canvas.blit(text, position)
+
 
     def __draw_obstacles(self, canvas):
         for obstacle in self.__obstacles:

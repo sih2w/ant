@@ -124,7 +124,7 @@ def test(
             if draw_next_step:
                 stepping = True
                 agent_actions = get_decided_actions(state_actions, states)
-                states, rewards, terminations, truncations, info = environment.step(agent_actions, [])
+                states, rewards, terminations, truncations, info = environment.step(agent_actions)
 
             if draw_next_step or switching_agent:
                 draw(

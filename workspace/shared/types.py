@@ -61,6 +61,15 @@ class Nest(TypedDict):
     spawn_location: Location
 
 
+FoodPickupCallback: TypeAlias = Callable[[EnvironmentState], bool]
+
+
+ActionOverrideCallback: TypeAlias = Callable[[EnvironmentState, int], Tuple[bool, int]]
+
+
+ExchangeCallback: TypeAlias = Callable[[EnvironmentState], bool]
+
+
 class Agent(TypedDict):
     location: Location
     carried_food: List[Food]
@@ -68,13 +77,11 @@ class Agent(TypedDict):
     spawn_location: Location
     carry_capacity: int
     color: pygame.Color
+    food_pickup_callback: FoodPickupCallback
+    action_override_callback: ActionOverrideCallback
+    exchange_callback: ExchangeCallback
 
 
 class Obstacle(TypedDict):
     location: Location
     spawn_location: Location
-
-
-FoodPickupCallback: TypeAlias = Callable[[int, EnvironmentState], bool]
-
-ActionVerificationCallback: TypeAlias = Callable[[int, int, EnvironmentState], Tuple[bool, int]]

@@ -12,8 +12,16 @@ from workspace.functions.data_functions import load_data, save_data
 from workspace.shared.run_settings import *
 
 
+
 if __name__ == "__main__":
     environment = Environment()
+    environment.register_food_pickup_callbacks([
+        lambda environment_state: True
+    ])
+
+    environment.register_action_override_callbacks([])
+
+    environment.register_exchange_callbacks([])
 
     try:
         state_actions, episodes = load_data()

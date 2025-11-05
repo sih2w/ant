@@ -89,20 +89,6 @@ def average_state_actions(worker_state_actions: List[StateActions]) -> StateActi
     }
 
 
-def get_food_pickup_callbacks() -> List[FoodPickupCallback]:
-    def food_pickup_callback(agent_index: int, environment_state: EnvironmentState) -> bool:
-        return True
-
-    return [food_pickup_callback] * AGENT_COUNT
-
-
-def get_action_verification_callbacks() -> List[ActionVerificationCallback]:
-    def action_verification_callback(agent_index: int, action_index: int, environment_state: EnvironmentState) -> Tuple[bool, int]:
-        return True, -1
-
-    return [action_verification_callback] * AGENT_COUNT
-
-
 def train_episode(
         environment: Environment,
         epsilon: float,
@@ -111,9 +97,6 @@ def train_episode(
 ) -> Episode:
     states, _ = environment.reset()
     terminations, truncations = [], []
-
-    food_pickup_callbacks = get_food_pickup_callbacks()
-    action_verification_callbacks = get_action_verification_callbacks()
 
     episode: Episode = episode_factory()
     episode[EpisodeAttr.EPSILON.value] = epsilon
@@ -126,19 +109,13 @@ def train_episode(
             rng=rng
         )
 
-        for agent_index, action_index in enumerate(selected_actions):
-            callback = action_verification_callbacks[agent_index]
-            success, new_action_index = callback(agent_index, action_index, environment.get_environment_state())
-            if not success:
-                selected_actions[agent_index] = new_action_index
-
         update_policy_use(
             episode=episode,
             states=states,
             state_actions=state_actions
         )
 
-        new_states, rewards, terminations, truncations, infos = environment.step(selected_actions, food_pickup_callbacks)
+        new_states, rewards, terminations, truncations, infos = environment.step(selected_actions)
 
         for index, reward in enumerate(rewards):
             episode[EpisodeAttr.REWARDS.value][index] += reward
