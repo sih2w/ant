@@ -19,16 +19,26 @@ def has_prior_food_been_deposited(environment_state: EnvironmentState, food_inde
             return False
     return True
 
+def has_before_food_been_deposited(environment_state: EnvironmentState, food_index: int) -> bool:
+    for other_food_index, deposited in enumerate(environment_state["deposited_food"]):
+        if other_food_index > food_index and not deposited:
+            return False
+    return True
 
 if __name__ == "__main__":
     environment = Environment()
 
-    environment.register_food_pickup_callbacks(
-        [has_prior_food_been_deposited] * AGENT_COUNT
-    )
+    if AGENT_COUNT == 1:
+        environment.register_food_pickup_callbacks([has_prior_food_been_deposited])
+    elif AGENT_COUNT == 2:
+        environment.register_food_pickup_callbacks([
+            has_prior_food_been_deposited,
+            has_before_food_been_deposited
+        ])
+    else:
+        environment.register_food_pickup_callbacks([has_prior_food_been_deposited] * AGENT_COUNT)
 
     environment.register_action_override_callbacks([])
-
     environment.register_exchange_callbacks([])
 
     try:
