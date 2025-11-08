@@ -6,7 +6,7 @@ from workspace.classes.environment import Environment
 from workspace.shared.types import *
 from workspace.shared.enums import *
 from workspace.shared.run_settings import *
-from workspace.functions.policy_functions import get_training_actions, update_policy_use, exchange
+from workspace.functions.policy_functions import get_training_actions, exchange
 from workspace.functions.episode_functions import has_episode_ended,episode_factory
 from workspace.functions.policy_functions import update_policy, gridded_policy_factory, state_actions_factory
 from multiprocessing import Process
@@ -109,12 +109,6 @@ def train_episode(
             rng=rng
         )
 
-        update_policy_use(
-            episode=episode,
-            states=states,
-            state_actions=state_actions
-        )
-
         new_states, rewards, terminations, truncations, infos = environment.step(selected_actions)
 
         for index, reward in enumerate(rewards):
@@ -132,8 +126,8 @@ def train_episode(
 
         if EXCHANGE_INFO:
             exchange(
+                environment=environment,
                 state_actions=state_actions,
-                states=new_states,
                 episode=episode
             )
 

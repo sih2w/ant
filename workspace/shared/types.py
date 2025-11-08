@@ -67,7 +67,7 @@ FoodPickupCallback: TypeAlias = Callable[[EnvironmentState, int], bool]
 ActionOverrideCallback: TypeAlias = Callable[[EnvironmentState, int], Tuple[bool, int]]
 
 
-ExchangeCallback: TypeAlias = Callable[[EnvironmentState], bool]
+ExchangeCallback: TypeAlias = Callable[[Policy, Policy], bool]
 
 
 class Agent(TypedDict):

@@ -9,16 +9,26 @@ AGENT_ACTIONS = ((0, 1), (0, -1), (-1, 0), (1, 0))
 ACTION_ROTATIONS = (180, 0, 90, -90)
 
 
-def default_food_pickup_callback(environment_state: EnvironmentState, food_index: int):
+def default_food_pickup_callback(
+        environment_state: EnvironmentState,
+        food_index: int
+):
     return True
 
 
-def default_action_override_callback(environment_state: EnvironmentState, action_index: int):
+def default_action_override_callback(
+        environment_state: EnvironmentState,
+        action_index: int
+):
     return False, -1
 
 
-def default_exchange_callback(environment_state: EnvironmentState):
-    return True
+def default_exchange_callback(
+        environment_state: EnvironmentState,
+        source_policy: Policy,
+        target_policy: Policy
+) -> bool:
+    return False
 
 
 class Environment:
@@ -74,6 +84,9 @@ class Environment:
                 "location": location,
                 "spawn_location": location,
             })
+
+    def get_agents(self):
+        return self.__agents
 
     def register_food_pickup_callbacks(self, callbacks: List[FoodPickupCallback]):
         for index, callback in enumerate(callbacks):
@@ -176,6 +189,9 @@ class Environment:
             if location == obstacle["location"]:
                 return True
         return False
+
+    def carrying_food(self, agent_index: int) -> bool:
+        return len(self.__agents[agent_index]["carried_food"]) > 0
 
     def __pickup_food(self, agent: Agent, location: Location) -> bool:
         if len(agent["carried_food"]) < agent["carry_capacity"]:

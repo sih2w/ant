@@ -1,5 +1,5 @@
 from os import environ
-
+from workspace.shared.enums import PolicyAttr
 
 environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
@@ -19,11 +19,20 @@ def has_prior_food_been_deposited(environment_state: EnvironmentState, food_inde
             return False
     return True
 
+
 def has_before_food_been_deposited(environment_state: EnvironmentState, food_index: int) -> bool:
     for other_food_index, deposited in enumerate(environment_state["deposited_food"]):
         if other_food_index > food_index and not deposited:
             return False
     return True
+
+
+def average_policies(source: Policy, target: Policy) -> bool:
+    for index, value in enumerate(source[PolicyAttr.ACTIONS.value]):
+        source[PolicyAttr.ACTIONS.value][index] = (value + target[PolicyAttr.ACTIONS.value][index]) / 2
+        target[PolicyAttr.ACTIONS.value][index] = source[PolicyAttr.ACTIONS.value][index]
+    return True
+
 
 if __name__ == "__main__":
     environment = Environment()
@@ -39,7 +48,7 @@ if __name__ == "__main__":
         environment.register_food_pickup_callbacks([has_prior_food_been_deposited] * AGENT_COUNT)
 
     environment.register_action_override_callbacks([])
-    environment.register_exchange_callbacks([])
+    environment.register_exchange_callbacks([average_policies] * AGENT_COUNT)
 
     try:
         state_actions, episodes = load_data()
